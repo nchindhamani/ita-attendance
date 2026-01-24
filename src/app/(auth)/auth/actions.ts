@@ -1,0 +1,158 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+
+export async function signUpWithPassword(formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+  const fullName = String(formData.get("full_name") ?? "").trim();
+
+  if (!email || !password || !fullName) {
+    return { error: "Please provide your name, email, and password." };
+  }
+
+  const supabase = createSupabaseServerClient();
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("id,is_active")
+    .eq("email", email)
+    .maybeSingle<{ id: string; is_active: boolean }>();
+
+  if (existing?.id) {
+    return {
+      error: existing.is_active
+        ? "Your email already exists. If you forgot your password, please reset it."
+        : "Your profile has been deactivated. Please contact the admin.",
+    };
+  }
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/auth/callback?next=/auth/verify-email`,
+      data: { full_name: fullName },
+    },
+  });
+
+  if (error || !data.user) {
+    return { error: error?.message ?? "Unable to sign up." };
+  }
+
+  const admin = createSupabaseAdminClient();
+  await admin.from("profiles").insert({
+    id: data.user.id,
+    email,
+    full_name: fullName,
+    role: "teacher",
+    is_active: true,
+    is_approved: false,
+  });
+
+  redirect("/auth/verify-email");
+}
+
+export async function signInWithPassword(formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+
+  if (!email || !password) {
+    return { error: "Please provide your email and password." };
+  }
+
+  const supabase = createSupabaseServerClient();
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("id,is_active")
+    .eq("email", email)
+    .maybeSingle<{ id: string; is_active: boolean }>();
+
+  if (existing?.id && !existing.is_active) {
+    return {
+      error: "Your profile has been deactivated. Please contact the admin.",
+    };
+  }
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  redirect("/dashboard");
+}
+
+export async function signOut() {
+  const supabase = createSupabaseServerClient();
+  await supabase.auth.signOut();
+  redirect("/");
+}
+
+export async function requestPasswordReset(formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+
+  if (!email) {
+    return { error: "Enter your email address." };
+  }
+
+  const supabase = createSupabaseServerClient();
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("id,is_active")
+    .eq("email", email)
+    .maybeSingle<{ id: string; is_active: boolean }>();
+
+  if (existing?.id && !existing.is_active) {
+    return {
+      error: "Your profile has been deactivated. Please contact the admin.",
+    };
+  }
+
+  await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/auth/callback?next=/auth/update-password`,
+  });
+
+  return { success: "Password reset instructions sent." };
+}
+
+export async function updatePassword(formData: FormData) {
+  const password = String(formData.get("password") ?? "");
+  if (!password) {
+    return { error: "Please enter a new password." };
+  }
+
+  const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user?.id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_active")
+      .eq("id", user.id)
+      .maybeSingle<{ is_active: boolean }>();
+    if (profile && !profile.is_active) {
+      await supabase.auth.signOut();
+      return {
+        error: "Your profile has been deactivated. Please contact the admin.",
+      };
+    }
+  }
+  const { error } = await supabase.auth.updateUser({ password });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath("/dashboard");
+  redirect("/dashboard");
+}
+

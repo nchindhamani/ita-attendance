@@ -1,0 +1,89 @@
+import { requireActiveProfile } from "@/lib/auth";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { formatPacificDate, isAfterDailyCutoff } from "@/lib/time";
+import type { AttendanceStatus } from "@/lib/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AttendanceEditor } from "@/features/attendance/AttendanceEditor";
+
+type SearchParams = {
+  section?: string;
+};
+
+export default async function AttendancePage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  await requireActiveProfile();
+  const sectionId = searchParams.section;
+  if (!sectionId) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Select a section</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Choose a section from your dashboard to take attendance.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const supabase = createSupabaseServerClient();
+  const attendanceDate = formatPacificDate(new Date());
+
+  const { data: section } = await supabase
+    .from("sections")
+    .select("id,grade,section,school_year")
+    .eq("id", sectionId)
+    .maybeSingle();
+
+  const { data: students } = await supabase
+    .from("students")
+    .select("id,full_name")
+    .eq("section_id", sectionId)
+    .order("full_name", { ascending: true });
+
+  const studentIds = students?.map((student) => student.id) ?? [];
+  const { data: attendance } =
+    studentIds.length > 0
+      ? await supabase
+          .from("attendance")
+          .select("student_id,status,comments")
+          .eq("attendance_date", attendanceDate)
+          .in("student_id", studentIds)
+      : { data: [] };
+
+  const existing = (attendance ?? []).reduce(
+    (acc, entry) => {
+      acc[entry.student_id] = {
+        status: entry.status as AttendanceStatus,
+        comments: entry.comments ?? "",
+      };
+      return acc;
+    },
+    {} as Record<string, { status: AttendanceStatus; comments?: string | null }>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-semibold">
+          Attendance - Grade {section?.grade} {section?.section}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          School year: {section?.school_year}
+        </p>
+      </div>
+      <AttendanceEditor
+        sectionId={sectionId}
+        schoolYear={section?.school_year ?? ""}
+        attendanceDate={attendanceDate}
+        students={students ?? []}
+        existing={existing}
+        locked={isAfterDailyCutoff(new Date())}
+      />
+    </div>
+  );
+}
+
