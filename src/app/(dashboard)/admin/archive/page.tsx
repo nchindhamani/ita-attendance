@@ -18,10 +18,10 @@ export default async function ArchivePage() {
   const downloadLinks: { label: string; url: string }[] = [];
   if (settings?.archive_status === "ARCHIVE_READY" && settings.archive_path) {
     const studentsUrl = await admin.storage
-      .from("archives")
+      .from("ITA_attendance_archives")
       .createSignedUrl(`${settings.archive_path}/students.csv`, 3600);
     const attendanceUrl = await admin.storage
-      .from("archives")
+      .from("ITA_attendance_archives")
       .createSignedUrl(`${settings.archive_path}/attendance.csv`, 3600);
 
     if (studentsUrl.data?.signedUrl) {

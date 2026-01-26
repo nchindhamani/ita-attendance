@@ -17,7 +17,7 @@ A specialized web application designed for the International Tamil Academy (Cali
 
 ## Setup
 1. Create a Supabase project and apply the SQL in `supabase/schema.sql`.
-2. Create a storage bucket named `archives`.
+2. Create a storage bucket named `ITA_attendance_archives`.
 3. Configure `.env.local`:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`

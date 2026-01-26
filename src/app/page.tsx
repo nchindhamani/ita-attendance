@@ -16,7 +16,10 @@ export default function Home() {
               <Link href="/auth/login">Sign in</Link>
             </Button>
             <Button asChild>
-              <Link href="/auth/signup">Request access</Link>
+              <Link href="/auth/signup/teacher">Teacher signup</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/auth/signup/admin">Admin signup</Link>
             </Button>
           </div>
         </div>
@@ -35,10 +38,13 @@ export default function Home() {
             </p>
             <div className="flex flex-wrap gap-3">
               <Button asChild>
-                <Link href="/auth/signup">Create teacher profile</Link>
+                <Link href="/auth/signup/teacher">Teacher signup</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href="/auth/login">Go to dashboard</Link>
+                <Link href="/auth/signup/admin">Admin signup</Link>
+              </Button>
+              <Button asChild variant="ghost">
+                <Link href="/auth/login">Sign in</Link>
               </Button>
             </div>
           </div>

@@ -41,8 +41,8 @@ export async function requireActiveProfile() {
   if (!profile.is_active) {
     redirect("/account-disabled");
   }
-  if (profile.role === "teacher" && !profile.is_approved) {
-    redirect("/auth/pending-approval");
+  if (!profile.is_approved) {
+    redirect("/pending");
   }
   return profile;
 }

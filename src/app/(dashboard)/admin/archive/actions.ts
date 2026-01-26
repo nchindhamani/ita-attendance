@@ -54,13 +54,13 @@ export async function prepareArchive() {
 
   const basePath = `staging/${schoolYear}`;
   await admin.storage
-    .from("archives")
+    .from("ITA_attendance_archives")
     .upload(`${basePath}/students.csv`, studentsCsv, {
       contentType: "text/csv",
       upsert: true,
     });
   await admin.storage
-    .from("archives")
+    .from("ITA_attendance_archives")
     .upload(`${basePath}/attendance.csv`, attendanceCsv, {
       contentType: "text/csv",
       upsert: true,

@@ -14,6 +14,8 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isProtected = protectedPaths.some((path) => pathname.startsWith(path));
   const isAuthReset = pathname.startsWith("/auth/reset");
+  const isPending = pathname.startsWith("/pending");
+  const isLoggingOut = pathname.startsWith("/auth/logout");
 
   if (!isProtected && !isAuthReset) {
     return NextResponse.next();
@@ -60,16 +62,22 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  if (!profile.is_active) {
+  if (!profile.is_active && !isPending && !isLoggingOut) {
     await supabase.auth.signOut();
     const url = request.nextUrl.clone();
-    url.pathname = "/account-disabled";
+    url.pathname = "/pending";
     return NextResponse.redirect(url);
   }
 
-  if (profile.role === "teacher" && !profile.is_approved && isProtected) {
+  if (!profile.is_approved && !isPending && !isLoggingOut) {
     const url = request.nextUrl.clone();
-    url.pathname = "/auth/pending-approval";
+    url.pathname = "/pending";
+    return NextResponse.redirect(url);
+  }
+
+  if (profile.role !== "admin" && pathname.startsWith("/admin")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 

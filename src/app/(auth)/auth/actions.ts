@@ -6,13 +6,28 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-export async function signUpWithPassword(formData: FormData) {
+export async function signUpWithPassword(
+  _prevState: { error?: string },
+  formData: FormData
+) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const fullName = String(formData.get("full_name") ?? "").trim();
+  const mobile = String(formData.get("mobile") ?? "").trim();
+  const grade = String(formData.get("grade") ?? "").trim();
+  const section = String(formData.get("section") ?? "").trim();
+  const roomNumber = String(formData.get("room_number") ?? "").trim();
+  const roleInput = String(formData.get("role") ?? "teacher");
+  const normalizedRole = roleInput === "admin" ? "admin" : "teacher";
 
   if (!email || !password || !fullName) {
     return { error: "Please provide your name, email, and password." };
+  }
+
+  if (normalizedRole === "teacher" && (!grade || !section || !roomNumber)) {
+    return {
+      error: "Grade, section, and room number are required for teachers.",
+    };
   }
 
   const supabase = createSupabaseServerClient();
@@ -48,15 +63,22 @@ export async function signUpWithPassword(formData: FormData) {
     id: data.user.id,
     email,
     full_name: fullName,
-    role: "teacher",
-    is_active: true,
+    mobile: mobile || null,
+    grade: grade || null,
+    section: section || null,
+    room_number: roomNumber || null,
+    role: normalizedRole,
+    is_active: false,
     is_approved: false,
   });
 
   redirect("/auth/verify-email");
 }
 
-export async function signInWithPassword(formData: FormData) {
+export async function signInWithPassword(
+  _prevState: { error?: string },
+  formData: FormData
+) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
 
@@ -95,7 +117,10 @@ export async function signOut() {
   redirect("/");
 }
 
-export async function requestPasswordReset(formData: FormData) {
+export async function requestPasswordReset(
+  _prevState: { error?: string; success?: string },
+  formData: FormData
+) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
 
   if (!email) {
@@ -122,7 +147,10 @@ export async function requestPasswordReset(formData: FormData) {
   return { success: "Password reset instructions sent." };
 }
 
-export async function updatePassword(formData: FormData) {
+export async function updatePassword(
+  _prevState: { error?: string },
+  formData: FormData
+) {
   const password = String(formData.get("password") ?? "");
   if (!password) {
     return { error: "Please enter a new password." };

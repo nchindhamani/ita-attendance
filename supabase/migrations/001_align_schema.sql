@@ -1,12 +1,9 @@
 -- Align database schema with application expectations.
 -- Run this in Supabase SQL Editor after your initial tables exist.
 
--- Profiles: add email, is_approved; align is_active default.
+-- Profiles: add email; align is_active default.
 alter table if exists profiles
   add column if not exists email text;
-
-alter table if exists profiles
-  add column if not exists is_approved boolean default false;
 
 alter table if exists profiles
   alter column is_active set default true;
