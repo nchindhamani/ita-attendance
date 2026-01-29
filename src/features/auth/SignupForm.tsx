@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { useFormState } from "react-dom";
 
 import { Button } from "@/components/ui/button";
@@ -15,13 +16,53 @@ type SignupFormProps = {
 
 export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
   const [state, formAction] = useFormState(signUpWithPassword, initialState);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const validate = useCallback(
+    (form: HTMLFormElement) => {
+      const formData = new FormData(form);
+      const nextErrors: Record<string, string> = {};
+      const requiredFields = ["full_name", "email", "password"];
+
+      if (requireTeacherFields) {
+        requiredFields.push("grade", "section", "room_number");
+      }
+
+      requiredFields.forEach((field) => {
+        const value = String(formData.get(field) ?? "").trim();
+        if (!value) {
+          nextErrors[field] = "This field is required.";
+        }
+      });
+
+      setErrors(nextErrors);
+      return Object.keys(nextErrors).length === 0;
+    },
+    [requireTeacherFields]
+  );
 
   return (
-    <form className="space-y-4" action={formAction}>
+    <form
+      className="space-y-4"
+      action={formAction}
+      onSubmit={(event) => {
+        if (!validate(event.currentTarget)) {
+          event.preventDefault();
+        }
+      }}
+    >
       <input type="hidden" name="role" value={role} />
       <div className="space-y-2">
         <label className="text-sm font-medium">Full name</label>
-        <Input name="full_name" placeholder="Vedha S." required />
+        <Input
+          name="full_name"
+          placeholder="Vedha S."
+          required
+          aria-invalid={Boolean(errors.full_name)}
+        />
+        {errors.full_name ? (
+          <p className="text-xs text-destructive">{errors.full_name}</p>
+        ) : null}
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium">Mobile</label>
@@ -34,7 +75,11 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
           type="email"
           placeholder="teacher@ita.org"
           required
+          aria-invalid={Boolean(errors.email)}
         />
+        {errors.email ? (
+          <p className="text-xs text-destructive">{errors.email}</p>
+        ) : null}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -43,7 +88,11 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
             name="grade"
             placeholder="5"
             required={requireTeacherFields}
+            aria-invalid={Boolean(errors.grade)}
           />
+          {errors.grade ? (
+            <p className="text-xs text-destructive">{errors.grade}</p>
+          ) : null}
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Section</label>
@@ -51,7 +100,11 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
             name="section"
             placeholder="A"
             required={requireTeacherFields}
+            aria-invalid={Boolean(errors.section)}
           />
+          {errors.section ? (
+            <p className="text-xs text-destructive">{errors.section}</p>
+          ) : null}
         </div>
       </div>
       <div className="space-y-2">
@@ -60,11 +113,23 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
           name="room_number"
           placeholder="Room 12"
           required={requireTeacherFields}
+          aria-invalid={Boolean(errors.room_number)}
         />
+        {errors.room_number ? (
+          <p className="text-xs text-destructive">{errors.room_number}</p>
+        ) : null}
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium">Password</label>
-        <Input name="password" type="password" required />
+        <Input
+          name="password"
+          type="password"
+          required
+          aria-invalid={Boolean(errors.password)}
+        />
+        {errors.password ? (
+          <p className="text-xs text-destructive">{errors.password}</p>
+        ) : null}
       </div>
       {state.error ? (
         <p className="text-sm text-destructive">{state.error}</p>

@@ -10,8 +10,12 @@ export default function VerifyEmailPage() {
       </CardHeader>
       <CardContent className="space-y-3 text-sm text-muted-foreground">
         <p>
-          We sent a confirmation email to you. Please verify your email address
-          before signing in.
+          Please check your inbox for an email from Supabase Auth and verify
+          your address before signing in.
+        </p>
+        <p>
+          The verification email should have a subject like: “ITA Attendance
+          Portal – Email Verification for Teacher &lt;Your Name&gt;”.
         </p>
         <Button asChild variant="outline">
           <Link href="/auth/login">Return to sign in</Link>

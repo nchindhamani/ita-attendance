@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ export default async function AdminUsersPage({
   searchParams: SearchParams;
 }) {
   await requireRole("admin");
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
 
   const [{ data: approvalQueue }, { data: staffDirectory }] = await Promise.all([
     supabase

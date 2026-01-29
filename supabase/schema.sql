@@ -20,6 +20,7 @@ create table if not exists sections (
   id uuid primary key default gen_random_uuid(),
   grade text not null,
   section text not null,
+  room_number text,
   school_year text not null,
   created_at timestamptz not null default now()
 );
@@ -34,8 +35,9 @@ create table if not exists teacher_sections (
 
 create table if not exists students (
   id uuid primary key default gen_random_uuid(),
+  student_identifier integer,
   full_name text not null,
-  section_id uuid not null references sections on delete cascade,
+  section_id uuid references sections on delete cascade,
   school_year text not null,
   created_at timestamptz not null default now()
 );
@@ -43,6 +45,8 @@ create table if not exists students (
 create table if not exists attendance (
   id uuid primary key default gen_random_uuid(),
   student_id uuid not null references students on delete cascade,
+  student_identifier integer,
+  section_id uuid references sections on delete cascade,
   recorded_by uuid not null references profiles on delete cascade,
   attendance_date date not null,
   status attendance_status not null,
@@ -50,6 +54,15 @@ create table if not exists attendance (
   school_year text not null,
   created_at timestamptz not null default now(),
   unique (student_id, attendance_date)
+);
+
+create table if not exists holidays (
+  id uuid primary key default gen_random_uuid(),
+  holiday_date date not null,
+  name text not null,
+  school_year text not null,
+  created_at timestamptz not null default now(),
+  unique (holiday_date, school_year)
 );
 
 create table if not exists system_settings (

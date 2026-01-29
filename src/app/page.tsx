@@ -15,12 +15,6 @@ export default function Home() {
             <Button asChild variant="outline">
               <Link href="/auth/login">Sign in</Link>
             </Button>
-            <Button asChild>
-              <Link href="/auth/signup/teacher">Teacher signup</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/auth/signup/admin">Admin signup</Link>
-            </Button>
           </div>
         </div>
       </header>
@@ -42,9 +36,6 @@ export default function Home() {
               </Button>
               <Button asChild variant="outline">
                 <Link href="/auth/signup/admin">Admin signup</Link>
-              </Button>
-              <Button asChild variant="ghost">
-                <Link href="/auth/login">Sign in</Link>
               </Button>
             </div>
           </div>

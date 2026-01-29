@@ -34,13 +34,20 @@ export default async function AttendancePage({
 
   const { data: section } = await supabase
     .from("sections")
-    .select("id,grade,section,school_year")
+    .select("id,grade,section,room_number,school_year")
     .eq("id", sectionId)
+    .maybeSingle();
+
+  const { data: holiday } = await supabase
+    .from("holidays")
+    .select("holiday_date,name")
+    .eq("school_year", section?.school_year ?? "")
+    .eq("holiday_date", attendanceDate)
     .maybeSingle();
 
   const { data: students } = await supabase
     .from("students")
-    .select("id,full_name")
+    .select("id,full_name,student_identifier")
     .eq("section_id", sectionId)
     .order("full_name", { ascending: true });
 
@@ -81,7 +88,8 @@ export default async function AttendancePage({
         attendanceDate={attendanceDate}
         students={students ?? []}
         existing={existing}
-        locked={isAfterDailyCutoff(new Date())}
+        locked={isAfterDailyCutoff(new Date()) || Boolean(holiday)}
+        holidayName={holiday?.name ?? null}
       />
     </div>
   );

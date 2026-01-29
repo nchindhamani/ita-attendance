@@ -5,6 +5,14 @@ import Papa from "papaparse";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -24,6 +32,7 @@ import {
 
 type Student = {
   id: string;
+  student_identifier?: number | null;
   full_name: string;
 };
 
@@ -46,6 +55,7 @@ export function AttendanceEditor({
   students,
   existing,
   locked,
+  holidayName,
 }: {
   sectionId: string;
   schoolYear: string;
@@ -53,10 +63,13 @@ export function AttendanceEditor({
   students: Student[];
   existing: ExistingAttendance;
   locked: boolean;
+  holidayName?: string | null;
 }) {
   const [isPending, startTransition] = useTransition();
   const [csvPending, startCsvTransition] = useTransition();
-  const [manualName, setManualName] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [studentIdentifier, setStudentIdentifier] = useState("");
+  const [studentName, setStudentName] = useState("");
 
   const initialEntries = useMemo(() => {
     return students.map((student) => ({
@@ -104,21 +117,24 @@ export function AttendanceEditor({
   };
 
   const handleManualAdd = () => {
-    if (!manualName.trim()) {
-      toast.error("Enter a student name.");
+    if (!studentIdentifier.trim() || !studentName.trim()) {
+      toast.error("Enter a student ID and name.");
       return;
     }
     startTransition(async () => {
       const result = await addStudent({
         sectionId,
         schoolYear,
-        fullName: manualName.trim(),
+        studentIdentifier: studentIdentifier.trim(),
+        fullName: studentName.trim(),
       });
       if (result?.error) {
         toast.error(result.error);
       } else {
         toast.success(result?.success ?? "Student added.");
-        setManualName("");
+        setStudentIdentifier("");
+        setStudentName("");
+        setDialogOpen(false);
       }
     });
   };
@@ -128,11 +144,26 @@ export function AttendanceEditor({
       Papa.parse<string[]>(file, {
         skipEmptyLines: true,
         complete: async (results) => {
-          const names = results.data.map((row) => String(row[0] ?? ""));
+          const students = results.data
+            .map((row, index) => {
+              const id = String(row[0] ?? "").trim();
+              const name = String(row[1] ?? "").trim();
+              if (
+                index === 0 &&
+                id.toLowerCase().includes("id") &&
+                name.toLowerCase().includes("name")
+              ) {
+                return null;
+              }
+              return { studentIdentifier: id, fullName: name };
+            })
+            .filter((row): row is { studentIdentifier: string; fullName: string } =>
+              Boolean(row && row.studentIdentifier && row.fullName)
+            );
           const result = await addStudentsFromCsv({
             sectionId,
             schoolYear,
-            names,
+            students,
           });
           if (result?.error) {
             toast.error(result.error);
@@ -154,34 +185,65 @@ export function AttendanceEditor({
           <p className="text-sm text-muted-foreground">
             Attendance date: {attendanceDate}
           </p>
-          {locked ? (
-            <p className="text-sm text-destructive">
-              Attendance is locked after 3:00 PM PT.
-            </p>
-          ) : null}
+        {holidayName ? (
+          <p className="text-sm text-emerald-600">
+            Holiday: {holidayName}. Attendance is not required today.
+          </p>
+        ) : locked ? (
+          <p className="text-sm text-destructive">
+            Attendance is locked after 3:00 PM PT.
+          </p>
+        ) : null}
         </div>
         <Button onClick={handleSave} disabled={locked || isPending}>
           {isPending ? "Saving..." : "Save attendance"}
         </Button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-        <div className="flex flex-col gap-2 md:flex-row">
-          <Input
-            value={manualName}
-            onChange={(event) => setManualName(event.target.value)}
-            placeholder="Add student name"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleManualAdd}
-            disabled={isPending}
-          >
-            Add student
-          </Button>
-        </div>
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button type="button" variant="outline">
+              Add student
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add student</DialogTitle>
+              <DialogDescription>
+                Enter the student ID and student name.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Student ID</label>
+                <Input
+                  value={studentIdentifier}
+                  onChange={(event) => setStudentIdentifier(event.target.value)}
+                  placeholder="STU-001"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Student name</label>
+                <Input
+                  value={studentName}
+                  onChange={(event) => setStudentName(event.target.value)}
+                  placeholder="Student Name"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={handleManualAdd} disabled={isPending}>
+                  {isPending ? "Adding..." : "Add student"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            CSV columns: Student ID, Student Name
+          </p>
           <Input
             type="file"
             accept=".csv"

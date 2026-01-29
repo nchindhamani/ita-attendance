@@ -41,6 +41,75 @@ export async function approveUserAsRole(profileId: string, role: Role) {
   }
 
   const admin = createSupabaseAdminClient();
+
+  if (role === "teacher") {
+    const { data: teacher } = await admin
+      .from("profiles")
+      .select("grade,section,room_number")
+      .eq("id", profileId)
+      .maybeSingle<{
+        grade: string | null;
+        section: string | null;
+        room_number: string | null;
+      }>();
+
+    if (!teacher?.grade || !teacher?.section || !teacher.room_number) {
+      return { error: "Teacher grade/section is missing." };
+    }
+
+    const { data: settings } = await admin
+      .from("system_settings")
+      .select("current_school_year")
+      .eq("id", 1)
+      .single();
+
+    const currentSchoolYear = settings?.current_school_year ?? "2025-2026";
+
+    const { data: existingSection } = await admin
+      .from("sections")
+      .select("id,room_number")
+      .eq("grade", teacher.grade)
+      .eq("section", teacher.section)
+      .eq("school_year", currentSchoolYear)
+      .maybeSingle();
+
+    let sectionId = existingSection?.id ?? null;
+    if (existingSection) {
+      if (existingSection.room_number !== teacher.room_number) {
+        return {
+          error:
+            "Room number mismatch for this grade and section. Please verify.",
+        };
+      }
+    } else {
+      const { data: insertedSection } = await admin
+        .from("sections")
+        .insert({
+          grade: teacher.grade,
+          section: teacher.section,
+          room_number: teacher.room_number,
+          school_year: currentSchoolYear,
+        })
+        .select("id")
+        .single();
+      sectionId = insertedSection?.id ?? null;
+    }
+
+    if (!sectionId) {
+      return { error: "Unable to create section for this teacher." };
+    }
+
+    await admin.from("teacher_sections").upsert(
+      {
+        teacher_id: profileId,
+        section_id: sectionId,
+      },
+      {
+        onConflict: "teacher_id,section_id",
+      }
+    );
+  }
+
   await admin
     .from("profiles")
     .update({

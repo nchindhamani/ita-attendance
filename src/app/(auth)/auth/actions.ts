@@ -31,6 +31,7 @@ export async function signUpWithPassword(
   }
 
   const supabase = createSupabaseServerClient();
+  const admin = createSupabaseAdminClient();
   const { data: existing } = await supabase
     .from("profiles")
     .select("id,is_active")
@@ -43,6 +44,36 @@ export async function signUpWithPassword(
         ? "Your email already exists. If you forgot your password, please reset it."
         : "Your profile has been deactivated. Please contact the admin.",
     };
+  }
+
+  const { data: settings } = await admin
+    .from("system_settings")
+    .select("current_school_year")
+    .eq("id", 1)
+    .single();
+
+  const currentSchoolYear = settings?.current_school_year ?? "2025-2026";
+
+  if (normalizedRole === "teacher") {
+    const { data: existingSection } = await admin
+      .from("sections")
+      .select("id,room_number")
+      .eq("grade", grade)
+      .eq("section", section)
+      .eq("school_year", currentSchoolYear)
+      .maybeSingle();
+
+    if (
+      existingSection &&
+      existingSection.room_number &&
+      roomNumber &&
+      existingSection.room_number !== roomNumber
+    ) {
+      return {
+        error:
+          "Please check the room number for the selected grade and section.",
+      };
+    }
   }
 
   const { data, error } = await supabase.auth.signUp({
@@ -58,7 +89,6 @@ export async function signUpWithPassword(
     return { error: error?.message ?? "Unable to sign up." };
   }
 
-  const admin = createSupabaseAdminClient();
   await admin.from("profiles").insert({
     id: data.user.id,
     email,

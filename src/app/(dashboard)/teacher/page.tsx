@@ -10,7 +10,7 @@ export default async function TeacherDashboardPage() {
 
   const { data: assignments } = await supabase
     .from("teacher_sections")
-    .select("id,section:sections(id,grade,section,school_year)")
+    .select("id,section:sections(id,grade,section,room_number,school_year)")
     .eq("teacher_id", profile.id);
 
   return (
@@ -32,6 +32,9 @@ export default async function TeacherDashboardPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <p>School year: {assignment.section?.school_year}</p>
+              {assignment.section?.room_number ? (
+                <p>Room: {assignment.section.room_number}</p>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button asChild size="sm">
                   <Link
@@ -41,7 +44,9 @@ export default async function TeacherDashboardPage() {
                   </Link>
                 </Button>
                 <Button asChild size="sm" variant="outline">
-                  <Link href={`/history?section=${assignment.section?.id ?? ""}`}>
+                  <Link
+                    href={`/history?section=${assignment.section?.id ?? ""}`}
+                  >
                     View history
                   </Link>
                 </Button>

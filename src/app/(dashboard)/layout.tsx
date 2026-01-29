@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { requireActiveProfile } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
-import { signOut } from "@/app/(auth)/auth/actions";
+import { SignOutButton } from "@/features/auth/SignOutButton";
 
 export default async function DashboardLayout({
   children,
@@ -16,12 +15,14 @@ export default async function DashboardLayout({
           { href: "/admin", label: "Admin Overview" },
           { href: "/admin/users", label: "User Management" },
           { href: "/admin/attendance", label: "Attendance" },
+          { href: "/admin/student-attendance", label: "Student Lookup" },
           { href: "/admin/archive", label: "Archive" },
         ]
       : [
           { href: "/teacher", label: "My Classes" },
           { href: "/attendance", label: "Attendance" },
           { href: "/history", label: "History" },
+          { href: "/teacher/student-attendance", label: "Student Lookup" },
         ];
 
   return (
@@ -44,11 +45,7 @@ export default async function DashboardLayout({
             <span className="text-sm text-muted-foreground">
               {profile.full_name ?? profile.email}
             </span>
-            <form action={signOut}>
-              <Button size="sm" variant="outline" type="submit">
-                Sign out
-              </Button>
-            </form>
+            <SignOutButton />
           </div>
         </div>
       </header>
