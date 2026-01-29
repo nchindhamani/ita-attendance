@@ -27,6 +27,7 @@ import {
   addStudent,
   addStudentsFromCsv,
   saveAttendance,
+  updateStudent,
   type AttendanceEntryInput,
 } from "@/app/(dashboard)/attendance/actions";
 
@@ -70,6 +71,10 @@ export function AttendanceEditor({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [studentIdentifier, setStudentIdentifier] = useState("");
   const [studentName, setStudentName] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editStudentId, setEditStudentId] = useState<string | null>(null);
+  const [editStudentIdentifier, setEditStudentIdentifier] = useState("");
+  const [editStudentName, setEditStudentName] = useState("");
 
   const initialEntries = useMemo(() => {
     return students.map((student) => ({
@@ -139,6 +144,37 @@ export function AttendanceEditor({
     });
   };
 
+  const openEditDialog = (student: Student) => {
+    setEditStudentId(student.id);
+    setEditStudentIdentifier(
+      student.student_identifier ? String(student.student_identifier) : ""
+    );
+    setEditStudentName(student.full_name ?? "");
+    setEditOpen(true);
+  };
+
+  const handleEditSave = () => {
+    if (!editStudentId) return;
+    if (!editStudentIdentifier.trim() || !editStudentName.trim()) {
+      toast.error("Student ID and name are required.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await updateStudent({
+        studentId: editStudentId,
+        studentIdentifier: editStudentIdentifier.trim(),
+        fullName: editStudentName.trim(),
+        sectionId,
+      });
+      if (result?.error) {
+        toast.error(result.error);
+      } else {
+        toast.success(result?.success ?? "Student updated.");
+        setEditOpen(false);
+      }
+    });
+  };
+
   const handleCsvUpload = (file: File) => {
     startCsvTransition(() => {
       Papa.parse<string[]>(file, {
@@ -191,7 +227,7 @@ export function AttendanceEditor({
           </p>
         ) : locked ? (
           <p className="text-sm text-destructive">
-            Attendance is locked after 3:00 PM PT.
+            Attendance is locked after 11:00 PM PT.
           </p>
         ) : null}
         </div>
@@ -240,6 +276,40 @@ export function AttendanceEditor({
           </DialogContent>
         </Dialog>
 
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit student</DialogTitle>
+              <DialogDescription>
+                Update the student name or ITA ID.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Student ID</label>
+                <Input
+                  value={editStudentIdentifier}
+                  onChange={(event) => setEditStudentIdentifier(event.target.value)}
+                  placeholder="STU-001"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Student name</label>
+                <Input
+                  value={editStudentName}
+                  onChange={(event) => setEditStudentName(event.target.value)}
+                  placeholder="Student Name"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={handleEditSave} disabled={isPending}>
+                  {isPending ? "Saving..." : "Save changes"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">
             CSV columns: Student ID, Student Name
@@ -265,6 +335,7 @@ export function AttendanceEditor({
               <TableHead>Student</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Comments</TableHead>
+              <TableHead>Edit Student Data</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -274,6 +345,9 @@ export function AttendanceEditor({
                 <TableRow key={student.id}>
                   <TableCell className="font-medium">
                     {student.full_name}
+                    <p className="text-xs text-muted-foreground">
+                      ID: {student.student_identifier ?? "-"}
+                    </p>
                   </TableCell>
                   <TableCell>
                     <select
@@ -302,6 +376,17 @@ export function AttendanceEditor({
                       disabled={locked}
                     />
                   </TableCell>
+                  <TableCell>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openEditDialog(student)}
+                      disabled={locked}
+                    >
+                      Edit
+                    </Button>
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -317,7 +402,23 @@ export function AttendanceEditor({
               key={student.id}
               className="rounded-lg border border-border bg-background p-4"
             >
-              <p className="font-medium">{student.full_name}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{student.full_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    ID: {student.student_identifier ?? "-"}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openEditDialog(student)}
+                  disabled={locked}
+                >
+                  Edit
+                </Button>
+              </div>
               <div className="mt-3 space-y-2">
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"

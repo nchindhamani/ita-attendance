@@ -80,7 +80,8 @@ export async function signUpWithPassword(
     email,
     password,
     options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/auth/callback?next=/auth/verify-email`,
+      // Email verification disabled for testing.
+      // emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/auth/callback?next=/auth/verify-email`,
       data: { full_name: fullName },
     },
   });
@@ -102,7 +103,9 @@ export async function signUpWithPassword(
     is_approved: false,
   });
 
-  redirect("/auth/verify-email");
+  // Email verification disabled for testing.
+  // redirect("/auth/verify-email");
+  redirect("/auth/login");
 }
 
 export async function signInWithPassword(

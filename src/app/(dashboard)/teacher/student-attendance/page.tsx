@@ -1,5 +1,5 @@
 import { requireActiveProfile } from "@/lib/auth";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,10 +21,10 @@ export default async function TeacherStudentAttendancePage({
   searchParams: SearchParams;
 }) {
   const profile = await requireActiveProfile();
-  const supabase = createSupabaseServerClient();
+  const admin = createSupabaseAdminClient();
   const studentIdInput = searchParams.studentId?.trim() ?? "";
 
-  const { data: settings } = await supabase
+  const { data: settings } = await admin
     .from("system_settings")
     .select("current_school_year")
     .eq("id", 1)
@@ -32,16 +32,16 @@ export default async function TeacherStudentAttendancePage({
 
   const schoolYear = settings?.current_school_year ?? "2025-2026";
 
-  const { data: assignments } = await supabase
+  const { data: assignments } = await admin
     .from("teacher_sections")
-    .select("grade,section,school_year")
+    .select("section:sections(id,school_year)")
     .eq("teacher_id", profile.id)
-    .eq("school_year", schoolYear);
+    .eq("sections.school_year", schoolYear);
 
-  const allowed = new Set(
-    (assignments ?? []).map(
-      (item) => `${item.grade ?? ""}-${item.section ?? ""}`
-    )
+  const allowedSectionIds = new Set(
+    (assignments ?? [])
+      .map((item) => item.section?.id)
+      .filter(Boolean) as string[]
   );
 
   let student: {
@@ -57,28 +57,26 @@ export default async function TeacherStudentAttendancePage({
   let errorMessage: string | null = null;
 
   if (studentIdInput) {
-    const studentIdentifier = Number(studentIdInput);
-    if (!Number.isInteger(studentIdentifier)) {
-      errorMessage = "Student ID must be a number.";
+    if (allowedSectionIds.size === 0) {
+      errorMessage = "No class is assigned to your account yet.";
     } else {
-      const { data: foundStudent } = await supabase
+      const { data: foundStudent } = await admin
         .from("students")
-        .select(
-          "id,full_name,student_identifier,grade,section,school_year"
-        )
-        .eq("student_identifier", studentIdentifier)
+        .select("id,full_name,student_identifier,section_id,school_year")
+        .eq("student_identifier", studentIdInput)
         .eq("school_year", schoolYear)
         .maybeSingle();
 
       if (!foundStudent) {
         errorMessage = "No student found for the current school year.";
       } else if (
-        !allowed.has(`${foundStudent.grade ?? ""}-${foundStudent.section ?? ""}`)
+        !foundStudent.section_id ||
+        !allowedSectionIds.has(foundStudent.section_id)
       ) {
         errorMessage = "You are not assigned to this student's class.";
       } else {
         student = foundStudent;
-        const { data: rows } = await supabase
+        const { data: rows } = await admin
           .from("attendance")
           .select("attendance_date,status,comments")
           .eq("student_id", foundStudent.id)

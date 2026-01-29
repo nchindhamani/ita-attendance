@@ -24,7 +24,7 @@ export default async function AdminUsersPage({
 }: {
   searchParams: SearchParams;
 }) {
-  await requireRole("admin");
+  const adminProfile = await requireRole("admin");
   const supabase = createSupabaseAdminClient();
 
   const [{ data: approvalQueue }, { data: staffDirectory }] = await Promise.all([
@@ -172,6 +172,7 @@ export default async function AdminUsersPage({
                           isActive={user.is_active}
                           role={user.role}
                           view="directory"
+                          isSelf={user.id === adminProfile.id}
                         />
                       </TableCell>
                     </TableRow>

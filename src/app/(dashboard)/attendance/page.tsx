@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireActiveProfile } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatPacificDate, isAfterDailyCutoff } from "@/lib/time";
@@ -14,8 +15,22 @@ export default async function AttendancePage({
 }: {
   searchParams: SearchParams;
 }) {
-  await requireActiveProfile();
+  const profile = await requireActiveProfile();
   const sectionId = searchParams.section;
+
+  const supabase = createSupabaseServerClient();
+  if (!sectionId && profile.role === "teacher") {
+    const { data: assignments } = await supabase
+      .from("teacher_sections")
+      .select("section_id")
+      .eq("teacher_id", profile.id)
+      .limit(1);
+    const assignedSectionId = assignments?.[0]?.section_id;
+    if (assignedSectionId) {
+      redirect(`/attendance?section=${assignedSectionId}`);
+    }
+  }
+
   if (!sectionId) {
     return (
       <Card>
@@ -28,8 +43,6 @@ export default async function AttendancePage({
       </Card>
     );
   }
-
-  const supabase = createSupabaseServerClient();
   const attendanceDate = formatPacificDate(new Date());
 
   const { data: section } = await supabase

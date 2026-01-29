@@ -42,44 +42,37 @@ export default async function AdminStudentAttendancePage({
   let errorMessage: string | null = null;
 
   if (studentIdInput) {
-    const studentIdentifier = Number(studentIdInput);
-    if (!Number.isInteger(studentIdentifier)) {
-      errorMessage = "Student ID must be a number.";
+    const { data: yearRows } = await admin
+      .from("students")
+      .select("school_year")
+      .eq("student_identifier", studentIdInput)
+      .order("school_year", { ascending: false });
+    availableYears = Array.from(
+      new Set((yearRows ?? []).map((row) => row.school_year))
+    );
+
+    const selectedYear = yearInput || availableYears[0];
+    if (!selectedYear) {
+      errorMessage = "No records found for this student.";
     } else {
-      const { data: yearRows } = await admin
+      const { data: foundStudent } = await admin
         .from("students")
-        .select("school_year")
-        .eq("student_identifier", studentIdentifier)
-        .order("school_year", { ascending: false });
-      availableYears = Array.from(
-        new Set((yearRows ?? []).map((row) => row.school_year))
-      );
+        .select("id,full_name,student_identifier,section_id,school_year")
+        .eq("student_identifier", studentIdInput)
+        .eq("school_year", selectedYear)
+        .maybeSingle();
 
-      const selectedYear = yearInput || availableYears[0];
-      if (!selectedYear) {
-        errorMessage = "No records found for this student.";
+      if (!foundStudent) {
+        errorMessage = "No student found for the selected school year.";
       } else {
-        const { data: foundStudent } = await admin
-          .from("students")
-          .select(
-            "id,full_name,student_identifier,grade,section,school_year"
-          )
-          .eq("student_identifier", studentIdentifier)
+        student = foundStudent;
+        const { data: rows } = await admin
+          .from("attendance")
+          .select("attendance_date,status,comments")
+          .eq("student_id", foundStudent.id)
           .eq("school_year", selectedYear)
-          .maybeSingle();
-
-        if (!foundStudent) {
-          errorMessage = "No student found for the selected school year.";
-        } else {
-          student = foundStudent;
-          const { data: rows } = await admin
-            .from("attendance")
-            .select("attendance_date,status,comments")
-            .eq("student_id", foundStudent.id)
-            .eq("school_year", selectedYear)
-            .order("attendance_date", { ascending: false });
-          attendance = rows ?? [];
-        }
+          .order("attendance_date", { ascending: false });
+        attendance = rows ?? [];
       }
     }
   }

@@ -238,3 +238,38 @@ export async function addStudentsFromCsv(payload: {
   return { success: "Student roster uploaded." };
 }
 
+export async function updateStudent(payload: {
+  studentId: string;
+  studentIdentifier: string;
+  fullName: string;
+  sectionId: string;
+}) {
+  await requireActiveProfile();
+  const admin = createSupabaseAdminClient();
+
+  const studentIdentifier = Number(payload.studentIdentifier);
+  if (!Number.isInteger(studentIdentifier)) {
+    return { error: "Student ID must be a number." };
+  }
+
+  const { error } = await admin
+    .from("students")
+    .update({
+      student_identifier: studentIdentifier,
+      full_name: payload.fullName.trim(),
+    })
+    .eq("id", payload.studentId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  await admin
+    .from("attendance")
+    .update({ student_identifier: studentIdentifier })
+    .eq("student_id", payload.studentId);
+
+  revalidatePath(`/attendance?section=${payload.sectionId}`);
+  return { success: "Student updated." };
+}
+

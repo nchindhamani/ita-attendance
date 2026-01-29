@@ -7,7 +7,7 @@ export function isAfterDailyCutoff(date: Date) {
     date.toLocaleString("en-US", { timeZone: PACIFIC_TZ })
   );
   const cutoff = new Date(pacific);
-  cutoff.setHours(15, 0, 0, 0);
+  cutoff.setHours(23, 0, 0, 0);
   return pacific.getTime() >= cutoff.getTime();
 }
 

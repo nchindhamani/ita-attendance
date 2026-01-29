@@ -1,5 +1,5 @@
 import { requireRole } from "@/lib/auth";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { formatPacificDate } from "@/lib/time";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HistoryTable } from "@/features/history/HistoryTable";
@@ -15,7 +15,7 @@ export default async function AdminAttendancePage({
   searchParams: SearchParams;
 }) {
   await requireRole("admin");
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
   const selectedDate = searchParams.date ?? formatPacificDate(new Date());
 
   const { data: sections } = await supabase
@@ -29,9 +29,9 @@ export default async function AdminAttendancePage({
     sectionId
       ? await supabase
           .from("attendance")
-          .select("status,comments,students(full_name,section_id)")
+          .select("status,comments,students!inner(full_name)")
           .eq("attendance_date", selectedDate)
-          .eq("students.section_id", sectionId)
+          .eq("section_id", sectionId)
       : { data: [] };
 
   const rows =
@@ -73,6 +73,7 @@ export default async function AdminAttendancePage({
               type="date"
               name="date"
               defaultValue={selectedDate}
+              max={formatPacificDate(new Date())}
               className="h-10 rounded-md border border-input bg-background px-3 text-sm"
             />
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">

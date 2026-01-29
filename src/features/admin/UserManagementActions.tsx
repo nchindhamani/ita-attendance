@@ -18,12 +18,14 @@ export function UserManagementActions({
   isActive,
   role,
   view,
+  isSelf,
 }: {
   userId: string;
   isApproved: boolean;
   isActive: boolean;
   role: Role;
   view: "approval" | "directory";
+  isSelf?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -92,6 +94,12 @@ export function UserManagementActions({
           <span className="text-xs text-muted-foreground">Admin access</span>
         </div>
       </div>
+    );
+  }
+
+  if (isSelf) {
+    return (
+      <div className="text-xs text-muted-foreground">Current admin</div>
     );
   }
 

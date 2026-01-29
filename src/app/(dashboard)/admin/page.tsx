@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default async function AdminOverviewPage() {
   await requireRole("admin");
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
 
   const [{ count: pendingCount }, { count: activeCount }] = await Promise.all([
     supabase
@@ -18,7 +18,8 @@ export default async function AdminOverviewPage() {
       .from("profiles")
       .select("*", { count: "exact", head: true })
       .eq("role", "teacher")
-      .eq("is_active", true),
+      .eq("is_active", true)
+      .eq("is_approved", true),
   ]);
 
   return (

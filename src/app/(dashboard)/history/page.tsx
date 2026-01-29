@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireActiveProfile } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatPacificDate } from "@/lib/time";
@@ -15,9 +16,22 @@ export default async function HistoryPage({
 }: {
   searchParams: SearchParams;
 }) {
-  await requireActiveProfile();
+  const profile = await requireActiveProfile();
   const sectionId = searchParams.section;
   const selectedDate = searchParams.date ?? formatPacificDate(new Date());
+
+  const supabase = createSupabaseServerClient();
+  if (!sectionId && profile.role === "teacher") {
+    const { data: assignments } = await supabase
+      .from("teacher_sections")
+      .select("section_id")
+      .eq("teacher_id", profile.id)
+      .limit(1);
+    const assignedSectionId = assignments?.[0]?.section_id;
+    if (assignedSectionId) {
+      redirect(`/history?section=${assignedSectionId}&date=${selectedDate}`);
+    }
+  }
 
   if (!sectionId) {
     return (
@@ -31,8 +45,6 @@ export default async function HistoryPage({
       </Card>
     );
   }
-
-  const supabase = createSupabaseServerClient();
   const { data: section } = await supabase
     .from("sections")
     .select("grade,section")
@@ -41,9 +53,9 @@ export default async function HistoryPage({
 
   const { data: attendance } = await supabase
     .from("attendance")
-    .select("status,comments,students(full_name,section_id)")
+    .select("status,comments,students!inner(full_name)")
     .eq("attendance_date", selectedDate)
-    .eq("students.section_id", sectionId);
+    .eq("section_id", sectionId);
 
   const rows =
     attendance?.map((entry) => ({
@@ -73,6 +85,7 @@ export default async function HistoryPage({
               type="date"
               name="date"
               defaultValue={selectedDate}
+              max={formatPacificDate(new Date())}
             />
             <input type="hidden" name="section" value={sectionId} />
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
