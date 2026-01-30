@@ -4,7 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 type CookieToSet = {
   name: string;
   value: string;
-  options?: Parameters<NextResponse["cookies"]["set"]>[2];
+  options?: any;
 };
 
 const protectedPaths = [
@@ -38,6 +38,8 @@ export async function middleware(request: NextRequest) {
         },
         setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value);
+            response = NextResponse.next({ request });
             response.cookies.set(name, value, options);
           });
         },
