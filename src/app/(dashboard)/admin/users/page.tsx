@@ -31,14 +31,14 @@ export default async function AdminUsersPage({
     supabase
       .from("profiles")
       .select(
-        "id,full_name,email,role,grade,section,is_active,is_approved,created_at"
+        "id,full_name,email,role,grade,section,mobile,is_active,is_approved,created_at"
       )
       .eq("is_approved", false)
       .order("created_at", { ascending: false }),
     supabase
       .from("profiles")
       .select(
-        "id,full_name,email,role,grade,section,is_active,is_approved,created_at"
+        "id,full_name,email,role,grade,section,mobile,is_active,is_approved,created_at"
       )
       .eq("is_approved", true)
       .order("created_at", { ascending: false }),
@@ -96,7 +96,14 @@ export default async function AdminUsersPage({
                 <TableBody>
                   {approvalQueue.map((user) => (
                     <TableRow key={user.id}>
-                      <TableCell>{user.full_name ?? "Unknown"}</TableCell>
+                      <TableCell>
+                        <Link
+                          href={`/admin/users/${user.id}`}
+                          className="font-medium text-primary underline"
+                        >
+                          {user.full_name ?? "Unknown"}
+                        </Link>
+                      </TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell className="capitalize">{user.role}</TableCell>
                       <TableCell>{user.grade ?? "-"}</TableCell>
@@ -152,7 +159,14 @@ export default async function AdminUsersPage({
                 <TableBody>
                   {staffDirectory.map((user) => (
                     <TableRow key={user.id}>
-                      <TableCell>{user.full_name ?? "Unknown"}</TableCell>
+                      <TableCell>
+                        <Link
+                          href={`/admin/users/${user.id}`}
+                          className="font-medium text-primary underline"
+                        >
+                          {user.full_name ?? "Unknown"}
+                        </Link>
+                      </TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell className="capitalize">{user.role}</TableCell>
                       <TableCell>{user.grade ?? "-"}</TableCell>

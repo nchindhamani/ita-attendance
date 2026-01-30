@@ -1,5 +1,3 @@
-import { formatInTimeZone } from "date-fns-tz";
-
 const PACIFIC_TZ = "America/Los_Angeles";
 
 export function isAfterDailyCutoff(date: Date) {
@@ -12,6 +10,6 @@ export function isAfterDailyCutoff(date: Date) {
 }
 
 export function formatPacificDate(date: Date) {
-  return formatInTimeZone(date, PACIFIC_TZ, "yyyy-MM-dd");
+  return date.toLocaleDateString("en-CA", { timeZone: PACIFIC_TZ });
 }
 

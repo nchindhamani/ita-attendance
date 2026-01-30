@@ -53,7 +53,9 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
     >
       <input type="hidden" name="role" value={role} />
       <div className="space-y-2">
-        <label className="text-sm font-medium">Full name</label>
+        <label className="text-sm font-medium">
+          Full name <span className="text-destructive">*</span>
+        </label>
         <Input
           name="full_name"
           placeholder="Vedha S."
@@ -69,7 +71,9 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
         <Input name="mobile" placeholder="(555) 123-4567" />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Email</label>
+        <label className="text-sm font-medium">
+          Email <span className="text-destructive">*</span>
+        </label>
         <Input
           name="email"
           type="email"
@@ -83,7 +87,12 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Grade</label>
+          <label className="text-sm font-medium">
+            Grade{" "}
+            {requireTeacherFields ? (
+              <span className="text-destructive">*</span>
+            ) : null}
+          </label>
           <Input
             name="grade"
             placeholder="5"
@@ -95,7 +104,12 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
           ) : null}
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Section</label>
+          <label className="text-sm font-medium">
+            Section{" "}
+            {requireTeacherFields ? (
+              <span className="text-destructive">*</span>
+            ) : null}
+          </label>
           <Input
             name="section"
             placeholder="A"
@@ -108,7 +122,12 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
         </div>
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Room number</label>
+        <label className="text-sm font-medium">
+          Room number{" "}
+          {requireTeacherFields ? (
+            <span className="text-destructive">*</span>
+          ) : null}
+        </label>
         <Input
           name="room_number"
           placeholder="Room 12"
@@ -120,11 +139,14 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
         ) : null}
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Password</label>
+        <label className="text-sm font-medium">
+          Password <span className="text-destructive">*</span>
+        </label>
         <Input
           name="password"
           type="password"
           required
+          autoComplete="new-password"
           aria-invalid={Boolean(errors.password)}
         />
         {errors.password ? (
