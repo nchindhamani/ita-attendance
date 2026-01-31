@@ -9,6 +9,11 @@ export default async function ArchivePage() {
   await requireRole("admin");
   const admin = createSupabaseAdminClient();
 
+  const prepareArchiveAction = async () => {
+    "use server";
+    await prepareArchive();
+  };
+
   const { data: settings } = await admin
     .from("system_settings")
     .select("current_school_year,archive_status,archive_path")
@@ -57,7 +62,7 @@ export default async function ArchivePage() {
             School year: {settings?.current_school_year ?? "Not set"}
           </p>
           {settings?.archive_status === "IDLE" ? (
-            <form action={prepareArchive}>
+            <form action={prepareArchiveAction}>
               <Button type="submit">Prepare Archive</Button>
             </form>
           ) : null}
