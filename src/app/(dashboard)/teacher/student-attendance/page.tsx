@@ -15,6 +15,14 @@ type SearchParams = {
   studentId?: string;
 };
 
+interface Student {
+  id: string;
+  full_name: string;
+  student_identifier: number | null;
+  section_id: string | null;
+  school_year: string;
+}
+
 export default async function TeacherStudentAttendancePage({
   searchParams,
 }: {
@@ -44,13 +52,7 @@ export default async function TeacherStudentAttendancePage({
       .filter(Boolean) as string[]
   );
 
-  let student: {
-    id: string;
-    full_name: string;
-    student_identifier: number | null;
-    section_id: string | null;
-    school_year: string;
-  } | null = null;
+  let student: Student | null = null;
   let attendance: { attendance_date: string; status: string; comments: string | null }[] =
     [];
   let errorMessage: string | null = null;
@@ -73,7 +75,7 @@ export default async function TeacherStudentAttendancePage({
         const studentData = Array.isArray(foundStudent)
           ? foundStudent[0]
           : foundStudent;
-        if (!studentData) {
+        if (!studentData || !('id' in studentData) || !('full_name' in studentData)) {
           errorMessage = "No student found for the current school year.";
         } else if (
           !studentData.section_id ||
@@ -81,7 +83,7 @@ export default async function TeacherStudentAttendancePage({
         ) {
           errorMessage = "You are not assigned to this student's class.";
         } else {
-          student = studentData as typeof student;
+          student = studentData as Student;
           const { data: rows } = await admin
             .from("attendance")
             .select("attendance_date,status,comments")
@@ -124,7 +126,7 @@ export default async function TeacherStudentAttendancePage({
         </CardContent>
       </Card>
 
-      {student ? (
+      {student && 'full_name' in student ? (
         <Card>
           <CardHeader>
             <CardTitle>

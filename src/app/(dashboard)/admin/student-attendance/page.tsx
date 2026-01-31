@@ -16,6 +16,14 @@ type SearchParams = {
   year?: string;
 };
 
+interface Student {
+  id: string;
+  full_name: string;
+  student_identifier: number | null;
+  section_id: string | null;
+  school_year: string;
+}
+
 export default async function AdminStudentAttendancePage({
   searchParams,
 }: {
@@ -27,15 +35,7 @@ export default async function AdminStudentAttendancePage({
   const yearInput = searchParams.year?.trim() ?? "";
 
   let availableYears: string[] = [];
-  let student:
-    | {
-        id: string;
-        full_name: string;
-        student_identifier: number | null;
-        section_id: string | null;
-        school_year: string;
-      }
-    | null = null;
+  let student: Student | null = null;
   let attendance: { attendance_date: string; status: string; comments: string | null }[] =
     [];
   let errorMessage: string | null = null;
@@ -68,8 +68,8 @@ export default async function AdminStudentAttendancePage({
         const studentData = Array.isArray(foundStudent)
           ? foundStudent[0]
           : foundStudent;
-        if (studentData) {
-          student = studentData as typeof student;
+        if (studentData && 'id' in studentData && 'full_name' in studentData) {
+          student = studentData as Student;
           const { data: rows } = await admin
             .from("attendance")
             .select("attendance_date,status,comments")
@@ -125,7 +125,7 @@ export default async function AdminStudentAttendancePage({
         </CardContent>
       </Card>
 
-      {student ? (
+      {student && 'full_name' in student ? (
         <Card>
           <CardHeader>
             <CardTitle>
