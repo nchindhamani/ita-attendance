@@ -9,6 +9,17 @@ function toCsv(data: Record<string, unknown>[]) {
   return Papa.unparse(data);
 }
 
+type AttendanceRow = {
+  attendance_date: string;
+  status: string;
+  comments: string | null;
+  school_year: string;
+  students:
+    | { full_name: string | null; section_id: string | null }
+    | { full_name: string | null; section_id: string | null }[]
+    | null;
+};
+
 export async function prepareArchive() {
   await requireRole("admin");
   const admin = createSupabaseAdminClient();
@@ -42,14 +53,19 @@ export async function prepareArchive() {
 
   const studentsCsv = toCsv(students ?? []);
   const attendanceCsv = toCsv(
-    (attendance ?? []).map((row) => ({
+    (attendance as AttendanceRow[] | null | undefined ?? []).map((row) => {
+      const student = Array.isArray(row.students)
+        ? row.students[0]
+        : row.students;
+      return {
       attendance_date: row.attendance_date,
       status: row.status,
       comments: row.comments,
       school_year: row.school_year,
-      student_name: row.students?.full_name ?? "",
-      section_id: row.students?.section_id ?? "",
-    }))
+      student_name: student?.full_name ?? "",
+      section_id: student?.section_id ?? "",
+    };
+    })
   );
 
   const basePath = `staging/${schoolYear}`;
