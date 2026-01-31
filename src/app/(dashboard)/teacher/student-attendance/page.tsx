@@ -112,16 +112,19 @@ export default async function TeacherStudentAttendancePage({
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Search by Student ID</CardTitle>
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-lg">Search by Student ID</CardTitle>
         </CardHeader>
-        <CardContent>
-          <form className="flex flex-wrap items-center gap-3">
-            <Input
-              name="studentId"
-              placeholder="Enter ITA student ID"
-              defaultValue={studentIdInput}
-            />
+        <CardContent className="p-4 pt-2">
+          <form className="flex items-center gap-3">
+            <div className="w-auto max-w-[180px]">
+              <Input
+                name="studentId"
+                placeholder="Enter ITA student ID"
+                defaultValue={studentIdInput}
+                className="w-full"
+              />
+            </div>
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
               Search
             </button>

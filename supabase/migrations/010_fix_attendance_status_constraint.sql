@@ -21,3 +21,4 @@ alter table attendance
   add constraint attendance_status_check
   check (status in ('present','absent','late','left_early'));
 
+

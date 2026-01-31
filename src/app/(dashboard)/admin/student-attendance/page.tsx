@@ -1,7 +1,6 @@
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -10,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { StudentAttendanceSearch } from "@/features/admin/StudentAttendanceSearch";
 
 type SearchParams = {
   studentId?: string;
@@ -40,24 +40,48 @@ export default async function AdminStudentAttendancePage({
     [];
   let errorMessage: string | null = null;
 
+  // Always fetch available years from attendance table if studentId is provided
   if (studentIdInput) {
-    const { data: yearRows } = await admin
-      .from("students")
-      .select("school_year")
-      .eq("student_identifier", studentIdInput)
-      .order("school_year", { ascending: false });
-    availableYears = Array.from(
-      new Set((yearRows ?? []).map((row) => row.school_year))
-    );
+    const studentIdNum = Number(studentIdInput);
+    if (Number.isInteger(studentIdNum)) {
+      const { data: yearRows, error: yearError } = await admin
+        .from("attendance")
+        .select("school_year")
+        .eq("student_identifier", studentIdNum)
+        .order("school_year", { ascending: false });
+      
+      if (yearError) {
+        errorMessage = `Error fetching years: ${yearError.message}`;
+      } else {
+        // Get unique years in reverse chronological order (newest first)
+        const yearSet = new Set<string>();
+        const orderedYears: string[] = [];
+        (yearRows ?? []).forEach((row) => {
+          if (row.school_year && !yearSet.has(row.school_year)) {
+            yearSet.add(row.school_year);
+            orderedYears.push(row.school_year);
+          }
+        });
+        availableYears = orderedYears;
+      }
+    } else {
+      errorMessage = "Student ID must be a valid number.";
+    }
+  }
 
-    const selectedYear = yearInput || availableYears[0];
-    if (!selectedYear) {
-      errorMessage = "No records found for this student.";
+  // Only fetch student and attendance if both studentId and year are provided
+  if (studentIdInput && yearInput) {
+    const studentIdNum = Number(studentIdInput);
+    const selectedYear = yearInput;
+    if (!Number.isInteger(studentIdNum)) {
+      errorMessage = "Student ID must be a number.";
+    } else if (!availableYears.includes(selectedYear)) {
+      errorMessage = "Invalid school year selected.";
     } else {
       const { data: foundStudent } = await admin
         .from("students")
         .select("id,full_name,student_identifier,section_id,school_year")
-        .eq("student_identifier", studentIdInput)
+        .eq("student_identifier", studentIdNum)
         .eq("school_year", selectedYear)
         .maybeSingle();
 
@@ -92,35 +116,23 @@ export default async function AdminStudentAttendancePage({
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Search</CardTitle>
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-lg">Search</CardTitle>
         </CardHeader>
-        <CardContent>
-          <form className="flex flex-wrap items-center gap-3">
-            <Input
-              name="studentId"
-              placeholder="Enter ITA student ID"
-              defaultValue={studentIdInput}
-            />
-            <select
-              name="year"
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-              defaultValue={yearInput}
-              disabled={availableYears.length === 0}
-            >
-              <option value="">Select school year</option>
-              {availableYears.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
-            <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              Search
-            </button>
-          </form>
+        <CardContent className="p-4 pt-2">
+          <StudentAttendanceSearch
+            initialStudentId={studentIdInput}
+            initialYear={yearInput}
+            availableYears={availableYears}
+            hasError={!!errorMessage}
+          />
           {errorMessage ? (
             <p className="mt-3 text-sm text-destructive">{errorMessage}</p>
+          ) : null}
+          {studentIdInput && availableYears.length === 0 && !errorMessage ? (
+            <p className="mt-3 text-sm text-destructive">
+              No attendance records found for student ID {studentIdInput}. Please verify the student ID.
+            </p>
           ) : null}
         </CardContent>
       </Card>

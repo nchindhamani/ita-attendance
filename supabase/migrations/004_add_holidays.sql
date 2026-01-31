@@ -8,3 +8,4 @@ create table if not exists holidays (
   unique (holiday_date, school_year)
 );
 
+

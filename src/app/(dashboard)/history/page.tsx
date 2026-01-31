@@ -84,17 +84,20 @@ export default async function HistoryPage({
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Pick a date</CardTitle>
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-lg">Pick a date</CardTitle>
         </CardHeader>
-        <CardContent>
-          <form className="flex flex-wrap items-center gap-3">
-            <Input
-              type="date"
-              name="date"
-              defaultValue={selectedDate}
-              max={formatPacificDate(new Date())}
-            />
+        <CardContent className="p-4 pt-2">
+          <form className="flex items-center gap-3">
+            <div className="w-auto max-w-[180px]">
+              <Input
+                type="date"
+                name="date"
+                defaultValue={selectedDate}
+                max={formatPacificDate(new Date())}
+                className="w-full"
+              />
+            </div>
             <input type="hidden" name="section" value={sectionId} />
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
               View
