@@ -45,18 +45,24 @@ export default async function AttendancePage({
   }
   const attendanceDate = formatPacificDate(new Date());
 
-  const { data: section } = await supabase
+  const { data: sectionData } = await supabase
     .from("sections")
     .select("id,grade,section,room_number,school_year")
     .eq("id", sectionId)
     .maybeSingle();
 
-  const { data: holiday } = await supabase
+  // Type guard: ensure sectionData is an object, not an array
+  const section = Array.isArray(sectionData) ? sectionData[0] : sectionData;
+
+  const { data: holidayData } = await supabase
     .from("holidays")
     .select("holiday_date,name")
     .eq("school_year", section?.school_year ?? "")
     .eq("holiday_date", attendanceDate)
     .maybeSingle();
+
+  // Type guard: ensure holidayData is an object, not an array
+  const holiday = Array.isArray(holidayData) ? holidayData[0] : holidayData;
 
   const { data: students } = await supabase
     .from("students")

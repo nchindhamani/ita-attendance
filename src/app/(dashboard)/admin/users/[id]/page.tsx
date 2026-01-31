@@ -13,13 +13,16 @@ export default async function AdminUserProfilePage({
   await requireRole("admin");
   const admin = createSupabaseAdminClient();
 
-  const { data: profile } = await admin
+  const { data: profileData } = await admin
     .from("profiles")
     .select(
       "id,full_name,email,mobile,role,grade,section,room_number,is_active,is_approved,created_at"
     )
     .eq("id", params.id)
     .maybeSingle();
+
+  // Type guard: ensure profileData is an object, not an array
+  const profile = Array.isArray(profileData) ? profileData[0] : profileData;
 
   if (!profile) {
     notFound();

@@ -32,8 +32,7 @@ export default async function AdminStudentAttendancePage({
         id: string;
         full_name: string;
         student_identifier: number | null;
-        grade: string | null;
-        section: string | null;
+        section_id: string | null;
         school_year: string;
       }
     | null = null;
@@ -65,14 +64,20 @@ export default async function AdminStudentAttendancePage({
       if (!foundStudent) {
         errorMessage = "No student found for the selected school year.";
       } else {
-        student = foundStudent;
-        const { data: rows } = await admin
-          .from("attendance")
-          .select("attendance_date,status,comments")
-          .eq("student_id", foundStudent.id)
-          .eq("school_year", selectedYear)
-          .order("attendance_date", { ascending: false });
-        attendance = rows ?? [];
+        // Type guard: ensure foundStudent is an object, not an array
+        const studentData = Array.isArray(foundStudent)
+          ? foundStudent[0]
+          : foundStudent;
+        if (studentData) {
+          student = studentData as typeof student;
+          const { data: rows } = await admin
+            .from("attendance")
+            .select("attendance_date,status,comments")
+            .eq("student_id", studentData.id)
+            .eq("school_year", selectedYear)
+            .order("attendance_date", { ascending: false });
+          attendance = rows ?? [];
+        }
       }
     }
   }

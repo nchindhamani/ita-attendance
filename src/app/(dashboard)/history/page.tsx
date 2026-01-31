@@ -45,11 +45,14 @@ export default async function HistoryPage({
       </Card>
     );
   }
-  const { data: section } = await supabase
+  const { data: sectionData } = await supabase
     .from("sections")
     .select("grade,section")
     .eq("id", sectionId)
     .maybeSingle();
+
+  // Type guard: ensure sectionData is an object, not an array
+  const section = Array.isArray(sectionData) ? sectionData[0] : sectionData;
 
   const { data: attendance } = await supabase
     .from("attendance")

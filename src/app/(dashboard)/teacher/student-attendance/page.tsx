@@ -48,8 +48,7 @@ export default async function TeacherStudentAttendancePage({
     id: string;
     full_name: string;
     student_identifier: number | null;
-    grade: string | null;
-    section: string | null;
+    section_id: string | null;
     school_year: string;
   } | null = null;
   let attendance: { attendance_date: string; status: string; comments: string | null }[] =
@@ -69,20 +68,28 @@ export default async function TeacherStudentAttendancePage({
 
       if (!foundStudent) {
         errorMessage = "No student found for the current school year.";
-      } else if (
-        !foundStudent.section_id ||
-        !allowedSectionIds.has(foundStudent.section_id)
-      ) {
-        errorMessage = "You are not assigned to this student's class.";
       } else {
-        student = foundStudent;
-        const { data: rows } = await admin
-          .from("attendance")
-          .select("attendance_date,status,comments")
-          .eq("student_id", foundStudent.id)
-          .eq("school_year", schoolYear)
-          .order("attendance_date", { ascending: false });
-        attendance = rows ?? [];
+        // Type guard: ensure foundStudent is an object, not an array
+        const studentData = Array.isArray(foundStudent)
+          ? foundStudent[0]
+          : foundStudent;
+        if (!studentData) {
+          errorMessage = "No student found for the current school year.";
+        } else if (
+          !studentData.section_id ||
+          !allowedSectionIds.has(studentData.section_id)
+        ) {
+          errorMessage = "You are not assigned to this student's class.";
+        } else {
+          student = studentData as typeof student;
+          const { data: rows } = await admin
+            .from("attendance")
+            .select("attendance_date,status,comments")
+            .eq("student_id", studentData.id)
+            .eq("school_year", schoolYear)
+            .order("attendance_date", { ascending: false });
+          attendance = rows ?? [];
+        }
       }
     }
   }
