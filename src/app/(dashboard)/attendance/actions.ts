@@ -194,13 +194,14 @@ export async function addStudentsFromCsv(payload: {
 
   interface InsertedStudent {
     id: string;
+    full_name: string;
     student_identifier: number | null;
   }
 
   const { data: inserted, error } = await admin
     .from("students")
     .insert(records)
-    .select("id,student_identifier");
+    .select("id,full_name,student_identifier");
   if (error || !inserted) {
     return { error: error?.message ?? "Unable to upload roster." };
   }
