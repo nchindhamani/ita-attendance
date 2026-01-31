@@ -87,6 +87,14 @@ export async function signUpWithPassword(
   });
 
   if (error || !data.user) {
+    // Handle duplicate email error from Supabase Auth
+    if (error?.message?.toLowerCase().includes("already registered") || 
+        error?.message?.toLowerCase().includes("user already exists") ||
+        error?.message?.toLowerCase().includes("email address is already")) {
+      return {
+        error: "This email address is already registered. If you forgot your password, please use the 'Forgot Password' link to reset it.",
+      };
+    }
     return { error: error?.message ?? "Unable to sign up." };
   }
 
@@ -102,6 +110,19 @@ export async function signUpWithPassword(
     is_active: false,
     is_approved: false,
   });
+
+  // TEMPORARY: Auto-confirm email until email verification is re-enabled
+  // TODO: Comment out or remove this block when email verification is enabled
+  try {
+    // Use Supabase Admin API to confirm email
+    await admin.auth.admin.updateUserById(data.user.id, {
+      email_confirm: true,
+    });
+  } catch (err) {
+    // Silently fail - email confirmation is optional for now
+    // If the above doesn't work, we can use an alternative approach
+    console.error("Failed to auto-confirm email:", err);
+  }
 
   // Email verification disabled for testing.
   // redirect("/auth/verify-email");

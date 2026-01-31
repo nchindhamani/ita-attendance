@@ -80,7 +80,8 @@ export default async function AdminUsersPage({
           </CardHeader>
           <CardContent>
             {approvalQueue && approvalQueue.length > 0 ? (
-              <Table>
+              <div className="overflow-x-auto">
+                <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
@@ -129,6 +130,7 @@ export default async function AdminUsersPage({
                   ))}
                 </TableBody>
               </Table>
+              </div>
             ) : (
               <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
                 All caught up! No pending approvals.
@@ -143,56 +145,58 @@ export default async function AdminUsersPage({
           </CardHeader>
           <CardContent>
             {staffDirectory && staffDirectory.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Grade</TableHead>
-                    <TableHead>Section</TableHead>
-                    <TableHead>Approval Status</TableHead>
-                    <TableHead>Account Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {staffDirectory.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <Link
-                          href={`/admin/users/${user.id}`}
-                          className="font-medium text-primary underline"
-                        >
-                          {user.full_name ?? "Unknown"}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell className="capitalize">{user.role}</TableCell>
-                      <TableCell>{user.grade ?? "-"}</TableCell>
-                      <TableCell>{user.section ?? "-"}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Approved</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={user.is_active ? "secondary" : "muted"}>
-                          {user.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <UserManagementActions
-                          userId={user.id}
-                          isApproved={user.is_approved}
-                          isActive={user.is_active}
-                          role={user.role}
-                          view="directory"
-                          isSelf={user.id === adminProfile.id}
-                        />
-                      </TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Grade</TableHead>
+                      <TableHead>Section</TableHead>
+                      <TableHead>Approval Status</TableHead>
+                      <TableHead>Account Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {staffDirectory.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          <Link
+                            href={`/admin/users/${user.id}`}
+                            className="font-medium text-primary underline"
+                          >
+                            {user.full_name ?? "Unknown"}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{user.email}</TableCell>
+                        <TableCell className="capitalize">{user.role}</TableCell>
+                        <TableCell>{user.grade ?? "-"}</TableCell>
+                        <TableCell>{user.section ?? "-"}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">Approved</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={user.is_active ? "secondary" : "muted"}>
+                            {user.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <UserManagementActions
+                            userId={user.id}
+                            isApproved={user.is_approved}
+                            isActive={user.is_active}
+                            role={user.role}
+                            view="directory"
+                            isSelf={user.id === adminProfile.id}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             ) : (
               <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
                 No approved staff yet.

@@ -15,6 +15,7 @@ export async function middleware(request: NextRequest) {
   const isProtected = protectedPaths.some((path) => pathname.startsWith(path));
   const isAuthReset = pathname.startsWith("/auth/reset");
   const isPending = pathname.startsWith("/pending");
+  const isAccountDisabled = pathname.startsWith("/account-disabled");
   const isLoggingOut = pathname.startsWith("/auth/logout");
 
   if (!isProtected && !isAuthReset) {
@@ -68,16 +69,18 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  if (!profile.is_active && !isPending && !isLoggingOut) {
-    await supabase.auth.signOut();
+  // Check approval status first (pending approval)
+  if (!profile.is_approved && !isPending && !isAccountDisabled && !isLoggingOut) {
     const url = request.nextUrl.clone();
     url.pathname = "/pending";
     return NextResponse.redirect(url);
   }
 
-  if (!profile.is_approved && !isPending && !isLoggingOut) {
+  // Then check active status (account disabled/deactivated)
+  if (!profile.is_active && !isPending && !isAccountDisabled && !isLoggingOut) {
+    await supabase.auth.signOut();
     const url = request.nextUrl.clone();
-    url.pathname = "/pending";
+    url.pathname = "/account-disabled";
     return NextResponse.redirect(url);
   }
 

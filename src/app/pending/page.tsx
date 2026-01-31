@@ -12,8 +12,9 @@ export default function PendingPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm text-muted-foreground">
             <p>
-              Your account is currently disabled. Please contact the ITA admin
-              team if you believe this is an error.
+              Your account is pending approval from an administrator. You will be
+              able to access the portal once your account has been approved.
+              Please contact the ITA admin team if you have any questions.
             </p>
             <Button asChild variant="outline">
               <Link href="/auth/login">Return to sign in</Link>

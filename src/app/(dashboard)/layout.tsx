@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireActiveProfile } from "@/lib/auth";
 import { SignOutButton } from "@/features/auth/SignOutButton";
+import { MobileNav } from "@/features/navigation/MobileNav";
 
 export default async function DashboardLayout({
   children,
@@ -17,19 +18,21 @@ export default async function DashboardLayout({
           { href: "/admin/attendance", label: "Attendance" },
           { href: "/admin/student-attendance", label: "Student Lookup" },
           { href: "/admin/archive", label: "Archive" },
+          { href: "/profile", label: "Profile" },
         ]
       : [
           { href: "/teacher", label: "My Classes" },
           { href: "/attendance", label: "Attendance" },
           { href: "/history", label: "History" },
           { href: "/teacher/student-attendance", label: "Student Lookup" },
+          { href: "/profile", label: "Profile" },
         ];
 
   return (
     <div className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
             <Link href="/dashboard" className="text-lg font-semibold">
               ITA Attendance Portal
             </Link>
@@ -40,9 +43,10 @@ export default async function DashboardLayout({
                 </Link>
               ))}
             </nav>
+            <MobileNav links={navLinks} />
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">
+            <span className="hidden text-sm text-muted-foreground sm:inline">
               {profile.full_name ?? profile.email}
             </span>
             <SignOutButton />

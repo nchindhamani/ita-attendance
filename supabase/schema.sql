@@ -35,7 +35,7 @@ create table if not exists teacher_sections (
 
 create table if not exists students (
   id uuid primary key default gen_random_uuid(),
-  student_identifier integer,
+  student_identifier integer not null,
   full_name text not null,
   section_id uuid references sections on delete cascade,
   school_year text not null,
