@@ -35,11 +35,16 @@ export default async function AdminAttendancePage({
       : { data: [] };
 
   const rows =
-    attendance?.map((entry) => ({
-      student_name: entry.students?.full_name ?? "Unknown",
-      status: entry.status,
-      comments: entry.comments ?? null,
-    })) ?? [];
+    attendance?.map((entry) => {
+      const student = Array.isArray(entry.students)
+        ? entry.students[0]
+        : entry.students;
+      return {
+        student_name: student?.full_name ?? "Unknown",
+        status: entry.status,
+        comments: entry.comments ?? null,
+      };
+    }) ?? [];
 
   const selectedSection = sections?.find((item) => item.id === sectionId);
 
