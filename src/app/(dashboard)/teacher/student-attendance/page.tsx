@@ -48,7 +48,13 @@ export default async function TeacherStudentAttendancePage({
 
   const allowedSectionIds = new Set(
     (assignments ?? [])
-      .map((item) => item.section?.id)
+      .map((item) => {
+        // Type guard: ensure section is an object, not an array
+        const section = Array.isArray(item.section)
+          ? item.section[0]
+          : item.section;
+        return section?.id;
+      })
       .filter(Boolean) as string[]
   );
 
