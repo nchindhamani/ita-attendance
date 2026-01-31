@@ -192,10 +192,15 @@ export async function addStudentsFromCsv(payload: {
     return { error: "No valid student rows found in CSV." };
   }
 
+  interface InsertedStudent {
+    id: string;
+    student_identifier: number | null;
+  }
+
   const { data: inserted, error } = await admin
     .from("students")
     .insert(records)
-    .select("id");
+    .select("id,student_identifier");
   if (error || !inserted) {
     return { error: error?.message ?? "Unable to upload roster." };
   }
@@ -217,7 +222,7 @@ export async function addStudentsFromCsv(payload: {
       .in("holiday_date", uniqueDates);
     const holidaySet = new Set((holidays ?? []).map((row) => row.holiday_date));
     const eligibleDates = uniqueDates.filter((date) => !holidaySet.has(date));
-    const backfill = inserted.flatMap((student) =>
+    const backfill = (inserted as InsertedStudent[]).flatMap((student) =>
       eligibleDates.map((date) => ({
         student_id: student.id,
         student_identifier: student.student_identifier ?? null,
