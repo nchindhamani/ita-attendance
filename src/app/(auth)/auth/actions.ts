@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { capitalizeName } from "@/lib/utils";
 
 export async function signUpWithPassword(
   _prevState: { error?: string },
@@ -12,7 +13,7 @@ export async function signUpWithPassword(
 ) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
-  const fullName = String(formData.get("full_name") ?? "").trim();
+  const fullName = capitalizeName(String(formData.get("full_name") ?? "").trim());
   const mobile = String(formData.get("mobile") ?? "").trim();
   const grade = String(formData.get("grade") ?? "").trim();
   const section = String(formData.get("section") ?? "").trim();

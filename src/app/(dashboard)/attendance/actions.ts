@@ -6,6 +6,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAfterDailyCutoff } from "@/lib/time";
 import { AttendanceStatus } from "@/lib/types";
+import { capitalizeName } from "@/lib/utils";
 
 export type AttendanceEntryInput = {
   studentId: string;
@@ -127,7 +128,7 @@ export async function addStudent(payload: {
     .from("students")
     .insert({
       student_identifier: studentIdentifier,
-      full_name: payload.fullName,
+      full_name: capitalizeName(payload.fullName),
       section_id: payload.sectionId,
       school_year: section.school_year ?? payload.schoolYear,
     })
@@ -204,7 +205,7 @@ export async function addStudentsFromCsv(payload: {
       }
       return {
         student_identifier: studentIdentifier,
-        full_name: student.fullName.trim(),
+        full_name: capitalizeName(student.fullName.trim()),
         section_id: payload.sectionId,
         school_year: section.school_year ?? payload.schoolYear,
       };
@@ -351,7 +352,7 @@ export async function updateStudent(payload: {
     .from("students")
     .update({
       student_identifier: studentIdentifier,
-      full_name: payload.fullName.trim(),
+      full_name: capitalizeName(payload.fullName.trim()),
     })
     .eq("id", payload.studentId);
 

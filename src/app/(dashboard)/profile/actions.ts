@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireActiveProfile } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { capitalizeName } from "@/lib/utils";
 
 export async function updateProfile(
   _prevState: { error?: string; success?: boolean } | null,
@@ -11,7 +12,7 @@ export async function updateProfile(
   const profile = await requireActiveProfile();
   const admin = createSupabaseAdminClient();
 
-  const fullName = String(formData.get("full_name") ?? "").trim();
+  const fullName = capitalizeName(String(formData.get("full_name") ?? "").trim());
   const mobile = String(formData.get("mobile") ?? "").trim();
   const grade = String(formData.get("grade") ?? "").trim();
   const section = String(formData.get("section") ?? "").trim();
