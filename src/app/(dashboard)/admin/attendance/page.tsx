@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { formatPacificDate } from "@/lib/time";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HistoryTable } from "@/features/history/HistoryTable";
+import { AttendanceStatistics } from "@/features/attendance/AttendanceStatistics";
 
 type SearchParams = {
   section?: string;
@@ -29,7 +30,7 @@ export default async function AdminAttendancePage({
     sectionId
       ? await supabase
           .from("attendance")
-          .select("status,comments,students!inner(full_name)")
+          .select("status,comments,students!inner(full_name,student_identifier)")
           .eq("attendance_date", selectedDate)
           .eq("section_id", sectionId)
       : { data: [] };
@@ -41,12 +42,21 @@ export default async function AdminAttendancePage({
         : entry.students;
       return {
         student_name: student?.full_name ?? "Unknown",
+        student_identifier: student?.student_identifier ?? null,
         status: entry.status,
         comments: entry.comments ?? null,
       };
     }) ?? [];
 
   const selectedSection = sections?.find((item) => item.id === sectionId);
+
+  // Calculate statistics from attendance data
+  const statistics = {
+    present: attendance?.filter((entry) => entry.status === "present").length ?? 0,
+    absent: attendance?.filter((entry) => entry.status === "absent").length ?? 0,
+    late: attendance?.filter((entry) => entry.status === "late").length ?? 0,
+    left_early: attendance?.filter((entry) => entry.status === "left_early").length ?? 0,
+  };
 
   return (
     <div className="space-y-6">
@@ -87,6 +97,11 @@ export default async function AdminAttendancePage({
           </form>
         </CardContent>
       </Card>
+
+      {/* Statistics Cards */}
+      {attendance && attendance.length > 0 && (
+        <AttendanceStatistics counts={statistics} />
+      )}
 
       <HistoryTable
         rows={rows}

@@ -15,6 +15,7 @@ import {
 
 type HistoryRow = {
   student_name: string;
+  student_identifier?: number | null;
   status: string;
   comments: string | null;
 };
@@ -55,6 +56,7 @@ export function HistoryTable({
           <TableHeader>
             <TableRow>
               <TableHead>Student</TableHead>
+              <TableHead>Student ID</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Comments</TableHead>
             </TableRow>
@@ -65,6 +67,7 @@ export function HistoryTable({
                 <TableCell className="font-medium">
                   {row.student_name}
                 </TableCell>
+                <TableCell>{row.student_identifier ?? "-"}</TableCell>
                 <TableCell>{row.status}</TableCell>
                 <TableCell>{row.comments ?? "-"}</TableCell>
               </TableRow>

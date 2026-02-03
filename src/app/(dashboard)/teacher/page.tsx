@@ -53,15 +53,15 @@ export default async function TeacherDashboardPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold">My Classes</h2>
-        <p className="text-sm text-muted-foreground">
+    <div className="space-y-12">
+      <div className="space-y-3">
+        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">My Classes</h2>
+        <p className="text-base text-muted-foreground">
           Manage students and take attendance for each assigned section.
         </p>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-12">
         {assignmentsWithStudents.map((assignment) => {
           const section = assignment.section;
           
@@ -70,7 +70,7 @@ export default async function TeacherDashboardPage() {
           }
 
           return (
-            <div key={assignment.id} className="space-y-4">
+            <div key={assignment.id} className="space-y-8">
               <Card>
                 <CardHeader>
                   <CardTitle>

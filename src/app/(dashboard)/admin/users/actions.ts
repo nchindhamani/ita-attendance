@@ -5,7 +5,10 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Role } from "@/lib/types";
 
-async function assertAdmin() {
+async function assertAdmin(): Promise<
+  | { error: string; profile?: undefined }
+  | { profile: { id: string; role: Role; is_active: boolean; is_approved: boolean }; error?: undefined }
+> {
   const supabase = createSupabaseServerClient();
   const {
     data: { user },
@@ -34,10 +37,10 @@ async function assertAdmin() {
 }
 
 export async function approveUserAsRole(profileId: string, role: Role) {
-  const { profile, error } = await assertAdmin();
-  if (error) return { error };
-  if (profile?.id === profileId) {
-    return { error: "Unauthorized" };
+  const adminCheck = await assertAdmin();
+  if (adminCheck.error) return { error: adminCheck.error };
+  if (adminCheck.profile?.id === profileId) {
+    return { error: "Cannot approve yourself." };
   }
 
   const admin = createSupabaseAdminClient();
@@ -126,24 +129,43 @@ export async function toggleUserActiveStatus(
   profileId: string,
   isActive: boolean
 ) {
-  const { error } = await assertAdmin();
-  if (error) return { error };
+  const adminCheck = await assertAdmin();
+  if (adminCheck.error) return { error: adminCheck.error };
+  if (adminCheck.profile?.id === profileId) {
+    return { error: "Cannot change your own status." };
+  }
 
   const admin = createSupabaseAdminClient();
-  await admin
+  const { error } = await admin
     .from("profiles")
     .update({ is_active: isActive })
     .eq("id", profileId);
+
+  if (error) {
+    return { error: error.message || "Failed to update user status." };
+  }
+
   revalidatePath("/admin/users");
   return { success: "Status updated." };
 }
 
 export async function updateUserRole(profileId: string, role: Role) {
-  const { error } = await assertAdmin();
-  if (error) return { error };
+  const adminCheck = await assertAdmin();
+  if (adminCheck.error) return { error: adminCheck.error };
+  if (adminCheck.profile?.id === profileId) {
+    return { error: "Cannot change your own role." };
+  }
 
   const admin = createSupabaseAdminClient();
-  await admin.from("profiles").update({ role }).eq("id", profileId);
+  const { error } = await admin
+    .from("profiles")
+    .update({ role })
+    .eq("id", profileId);
+
+  if (error) {
+    return { error: error.message || "Failed to update user role." };
+  }
+
   revalidatePath("/admin/users");
   return { success: "Role updated." };
 }

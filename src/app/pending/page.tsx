@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 
 export default function PendingPage() {
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-screen bg-[#fafafa]">
       <div className="mx-auto flex max-w-lg flex-col gap-6 px-4 py-16">
         <Card>
           <CardHeader>

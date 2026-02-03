@@ -44,33 +44,44 @@ export function UserManagementActions({
     });
   };
 
-  const handleActiveToggle = (nextActive: boolean) => {
+  const handleActiveToggle = (checked: boolean) => {
     startTransition(async () => {
-      const result = await toggleUserActiveStatus(userId, nextActive);
-      if (result?.error) {
-        toast.error(result.error);
-      } else {
-        toast.success("Account status updated.");
-        router.refresh();
+      try {
+        const result = await toggleUserActiveStatus(userId, checked);
+        if (result?.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(checked ? "User activated." : "User deactivated.");
+          router.refresh();
+        }
+      } catch (error) {
+        toast.error("Failed to update user status. Please try again.");
+        console.error("Error toggling active status:", error);
       }
     });
   };
 
-  const handleRoleChange = (nextRole: Role) => {
+  const handleRoleChange = (checked: boolean) => {
+    const nextRole: Role = checked ? "admin" : "teacher";
     startTransition(async () => {
-      const result = await updateUserRole(userId, nextRole);
-      if (result?.error) {
-        toast.error(result.error);
-      } else {
-        toast.success("Role updated.");
-        router.refresh();
+      try {
+        const result = await updateUserRole(userId, nextRole);
+        if (result?.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(`User role updated to ${nextRole}.`);
+          router.refresh();
+        }
+      } catch (error) {
+        toast.error("Failed to update user role. Please try again.");
+        console.error("Error updating role:", error);
       }
     });
   };
 
   if (view === "approval") {
     return (
-      <div className="flex flex-wrap items-center justify-end gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <Switch
             checked={teacherGranted}
@@ -80,7 +91,7 @@ export function UserManagementActions({
             }}
             disabled={isPending || isApproved || adminGranted}
           />
-          <span className="text-xs text-muted-foreground">Teacher access</span>
+          <span className="text-xs text-muted-foreground">Active</span>
         </div>
         <div className="flex items-center gap-2">
           <Switch
@@ -91,7 +102,7 @@ export function UserManagementActions({
             }}
             disabled={isPending || isApproved || teacherGranted}
           />
-          <span className="text-xs text-muted-foreground">Admin access</span>
+          <span className="text-xs text-muted-foreground">Admin</span>
         </div>
       </div>
     );
@@ -104,26 +115,22 @@ export function UserManagementActions({
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-3">
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={role === "admin"}
-          onCheckedChange={(checked) =>
-            handleRoleChange(checked ? "admin" : "teacher")
-          }
-          disabled={isPending}
-        />
-        <span className="text-xs text-muted-foreground">Admin access</span>
-      </div>
+    <div className="flex flex-wrap items-center gap-3">
       <div className="flex items-center gap-2">
         <Switch
           checked={isActive}
           onCheckedChange={handleActiveToggle}
           disabled={isPending}
         />
-        <span className="text-xs text-muted-foreground">
-          {isActive ? "Active" : "Inactive"}
-        </span>
+        <span className="text-xs text-muted-foreground">Active</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Switch
+          checked={role === "admin"}
+          onCheckedChange={handleRoleChange}
+          disabled={isPending}
+        />
+        <span className="text-xs text-muted-foreground">Admin</span>
       </div>
     </div>
   );

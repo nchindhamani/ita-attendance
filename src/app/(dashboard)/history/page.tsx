@@ -5,6 +5,7 @@ import { formatPacificDate } from "@/lib/time";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { HistoryTable } from "@/features/history/HistoryTable";
+import { AttendanceStatistics } from "@/features/attendance/AttendanceStatistics";
 
 type SearchParams = {
   section?: string;
@@ -56,7 +57,7 @@ export default async function HistoryPage({
 
   const { data: attendance } = await supabase
     .from("attendance")
-    .select("status,comments,students!inner(full_name)")
+    .select("status,comments,students!inner(full_name,student_identifier)")
     .eq("attendance_date", selectedDate)
     .eq("section_id", sectionId);
 
@@ -67,18 +68,27 @@ export default async function HistoryPage({
         : entry.students;
       return {
         student_name: student?.full_name ?? "Unknown",
+        student_identifier: student?.student_identifier ?? null,
         status: entry.status,
         comments: entry.comments ?? null,
       };
     }) ?? [];
 
+  // Calculate statistics from attendance data
+  const statistics = {
+    present: attendance?.filter((entry) => entry.status === "present").length ?? 0,
+    absent: attendance?.filter((entry) => entry.status === "absent").length ?? 0,
+    late: attendance?.filter((entry) => entry.status === "late").length ?? 0,
+    left_early: attendance?.filter((entry) => entry.status === "left_early").length ?? 0,
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold">
+      <div className="space-y-3">
+        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">
           History - Grade {section?.grade} {section?.section}
         </h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-lg text-[#64748b] font-normal leading-relaxed">
           Review or download attendance from a prior date.
         </p>
       </div>
@@ -88,8 +98,8 @@ export default async function HistoryPage({
           <CardTitle className="text-lg">Pick a date</CardTitle>
         </CardHeader>
         <CardContent className="p-4 pt-2">
-          <form className="flex items-center gap-3">
-            <div className="w-auto max-w-[180px]">
+          <form className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex-1 sm:max-w-[180px]">
               <Input
                 type="date"
                 name="date"
@@ -99,12 +109,20 @@ export default async function HistoryPage({
               />
             </div>
             <input type="hidden" name="section" value={sectionId} />
-            <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            <button
+              type="submit"
+              className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground sm:w-auto"
+            >
               View
             </button>
           </form>
         </CardContent>
       </Card>
+
+      {/* Statistics Cards */}
+      {attendance && attendance.length > 0 && (
+        <AttendanceStatistics counts={statistics} />
+      )}
 
       <HistoryTable
         rows={rows}

@@ -23,11 +23,11 @@ export default async function AdminOverviewPage() {
   ]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold">Admin Overview</h2>
-          <p className="text-sm text-muted-foreground">
+    <div className="space-y-12">
+      <div className="flex flex-wrap items-center justify-between gap-6">
+        <div className="space-y-3">
+          <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">Admin Overview</h2>
+          <p className="text-lg text-[#64748b] font-normal leading-relaxed">
             Approve teachers, review attendance, and manage yearly archives.
           </p>
         </div>
@@ -36,23 +36,27 @@ export default async function AdminOverviewPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Pending approvals</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold">
-            {pendingCount ?? 0}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Active teachers</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold">
-            {activeCount ?? 0}
-          </CardContent>
-        </Card>
+      <div className="grid gap-8 md:grid-cols-2">
+        <Link href="/admin/users?tab=approval">
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle>Pending approvals</CardTitle>
+            </CardHeader>
+            <CardContent className="text-[3.5rem] font-bold text-[#0f172a]">
+              {pendingCount ?? 0}
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/admin/users?tab=directory">
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle>Active teachers</CardTitle>
+            </CardHeader>
+            <CardContent className="text-[3.5rem] font-bold text-[#0f172a]">
+              {activeCount ?? 0}
+            </CardContent>
+          </Card>
+        </Link>
       </div>
     </div>
   );

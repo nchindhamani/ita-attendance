@@ -1,7 +1,7 @@
 import { requireActiveProfile } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ProfileForm } from "@/features/profile/ProfileForm";
+import { Card, CardContent } from "@/components/ui/card";
+import { ProfileView } from "@/features/profile/ProfileView";
 
 export default async function ProfilePage() {
   const profile = await requireActiveProfile();
@@ -27,17 +27,6 @@ export default async function ProfilePage() {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold">My Profile</h2>
-        <p className="text-sm text-muted-foreground">
-          View and update your profile information.
-        </p>
-      </div>
-
-      <ProfileForm initialData={profileData} />
-    </div>
-  );
+  return <ProfileView profileData={profileData} />;
 }
 

@@ -53,8 +53,8 @@ export function SignupForm({ role, requireTeacherFields }: SignupFormProps) {
     >
       <input type="hidden" name="role" value={role} />
       <div className="space-y-2">
-        <label className="text-sm font-medium">
-          Full name <span className="text-destructive">*</span>
+        <label className="text-[0.875rem] font-semibold text-[#1e293b] mb-2 block">
+          Full name <span className="text-[#ef4444]">*</span>
         </label>
         <Input
           name="full_name"

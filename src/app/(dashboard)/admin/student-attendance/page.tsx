@@ -1,14 +1,6 @@
 import { requireRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { StudentAttendanceSearch } from "@/features/admin/StudentAttendanceSearch";
 
 type SearchParams = {
@@ -38,6 +30,8 @@ export default async function AdminStudentAttendancePage({
   let student: Student | null = null;
   let attendance: { attendance_date: string; status: string; comments: string | null }[] =
     [];
+  let sectionInfo: { grade: string; section: string } | null = null;
+  let teacherName: string | null = null;
   let errorMessage: string | null = null;
 
   // Always fetch available years from attendance table if studentId is provided
@@ -101,6 +95,52 @@ export default async function AdminStudentAttendancePage({
             .eq("school_year", selectedYear)
             .order("attendance_date", { ascending: false });
           attendance = rows ?? [];
+
+          // Fetch section information for the selected school year
+          if (studentData.section_id) {
+            const { data: section } = await admin
+              .from("sections")
+              .select("grade,section,school_year")
+              .eq("id", studentData.section_id)
+              .eq("school_year", selectedYear)
+              .maybeSingle();
+            
+            if (section) {
+              const sectionData = Array.isArray(section) ? section[0] : section;
+              if (sectionData && 'grade' in sectionData && 'section' in sectionData) {
+                sectionInfo = {
+                  grade: sectionData.grade,
+                  section: sectionData.section,
+                };
+              }
+            }
+
+            // Fetch teacher information for this section in the selected school year
+            // First verify the section exists for this school year, then get teacher
+            if (sectionInfo) {
+              const { data: teacherSection } = await admin
+                .from("teacher_sections")
+                .select("teacher_id")
+                .eq("section_id", studentData.section_id)
+                .limit(1)
+                .maybeSingle();
+              
+              if (teacherSection && teacherSection.teacher_id) {
+                const { data: teacher } = await admin
+                  .from("profiles")
+                  .select("full_name")
+                  .eq("id", teacherSection.teacher_id)
+                  .maybeSingle();
+                
+                if (teacher) {
+                  const teacherData = Array.isArray(teacher) ? teacher[0] : teacher;
+                  if (teacherData && 'full_name' in teacherData) {
+                    teacherName = teacherData.full_name;
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -109,7 +149,7 @@ export default async function AdminStudentAttendancePage({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">Student Attendance Lookup</h2>
+        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">Student Attendance Lookup</h2>
         <p className="text-sm text-muted-foreground">
           Search by ITA Student ID and pick a school year.
         </p>
@@ -138,39 +178,68 @@ export default async function AdminStudentAttendancePage({
       </Card>
 
       {student && 'full_name' in student ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {student.full_name} (ID: {student.student_identifier})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {attendance.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Comments</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {attendance.map((row) => (
-                    <TableRow key={row.attendance_date}>
-                      <TableCell>{row.attendance_date}</TableCell>
-                      <TableCell className="capitalize">{row.status}</TableCell>
-                      <TableCell>{row.comments ?? "-"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No attendance recorded for this student yet.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+          <div className="bg-white rounded-[16px] p-6 shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
+            <h3 className="text-[1.75rem] font-heading font-bold text-[#0f172a] leading-tight mb-4">
+              {student.full_name}
+            </h3>
+            <div className="space-y-2">
+              <p className="text-sm text-[#64748b]">ID: {student.student_identifier ?? "-"}</p>
+              {sectionInfo && (
+                <p className="text-sm text-[#64748b]">Class: Grade {sectionInfo.grade} - {sectionInfo.section}</p>
+              )}
+              {teacherName && (
+                <p className="text-sm text-[#64748b]">Teacher: {teacherName}</p>
+              )}
+            </div>
+          </div>
+          
+          {attendance.length > 0 ? (
+            <div className="space-y-4">
+              <h4 className="text-xl font-heading font-semibold text-[#0f172a]">
+                Attendance History
+              </h4>
+              <div className="space-y-3">
+                {attendance.map((row) => {
+                  const statusColors = {
+                    present: "bg-[#d1fae5] text-[#065f46]",
+                    absent: "bg-[#fee2e2] text-[#991b1b]",
+                    late: "bg-[#fed7aa] text-[#9a3412]",
+                    left_early: "bg-[#e9d5ff] text-[#6b21a8]",
+                  };
+                  const statusColor = statusColors[row.status as keyof typeof statusColors] || "bg-gray-100 text-gray-700";
+                  
+                  return (
+                    <div
+                      key={row.attendance_date}
+                      className="bg-[#f8f9fa] rounded-[12px] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.1)]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-base font-medium text-[#0f172a] w-32 flex-shrink-0">
+                          {row.attendance_date}
+                        </span>
+                        <span
+                          className={`px-3 py-1 rounded-[8px] text-sm font-medium capitalize whitespace-nowrap ${statusColor}`}
+                        >
+                          {row.status}
+                        </span>
+                        {row.comments && (
+                          <span className="text-sm text-[#64748b]">
+                            {row.comments}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No attendance recorded for this student yet.
+            </p>
+          )}
+        </div>
       ) : null}
     </div>
   );

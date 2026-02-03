@@ -14,50 +14,20 @@ export async function updateProfile(
 
   const fullName = capitalizeName(String(formData.get("full_name") ?? "").trim());
   const mobile = String(formData.get("mobile") ?? "").trim();
-  const grade = String(formData.get("grade") ?? "").trim();
-  const section = String(formData.get("section") ?? "").trim();
-  const roomNumber = String(formData.get("room_number") ?? "").trim();
 
-  // Validation: mandatory fields cannot be empty
+  // Validation: full name is required
   if (!fullName) {
     return { error: "Full name is required and cannot be empty." };
   }
 
-  // For teachers, grade, section, and room_number are mandatory
-  if (profile.role === "teacher") {
-    if (!grade) {
-      return { error: "Grade is required for teachers and cannot be empty." };
-    }
-    if (!section) {
-      return { error: "Section is required for teachers and cannot be empty." };
-    }
-    if (!roomNumber) {
-      return {
-        error: "Room number is required for teachers and cannot be empty.",
-      };
-    }
-  }
-
-  // Build update object
+  // Build update object - only update editable fields
   const updateData: {
     full_name: string;
     mobile?: string | null;
-    grade?: string | null;
-    section?: string | null;
-    room_number?: string | null;
   } = {
     full_name: fullName,
+    mobile: mobile || null, // Mobile is optional
   };
-
-  // For teachers, always include grade/section/room_number
-  if (profile.role === "teacher") {
-    updateData.grade = grade;
-    updateData.section = section;
-    updateData.room_number = roomNumber;
-  }
-
-  // Mobile is optional for all users
-  updateData.mobile = mobile || null;
 
   const { error } = await admin
     .from("profiles")
