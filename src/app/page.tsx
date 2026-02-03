@@ -22,7 +22,7 @@ export default function Home() {
             <h2 className="text-5xl font-heading font-semibold leading-tight">
               Attendance tracking built for ITA teachers and admins.
             </h2>
-            <p className="text-base text-muted-foreground max-w-2xl">
+            <p className="text-base text-muted-foreground max-w-2xl mx-auto">
               Secure, admin-approved access for teachers and staff.
             </p>
             <div className="flex flex-wrap justify-center gap-6">
