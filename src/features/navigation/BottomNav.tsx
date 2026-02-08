@@ -32,6 +32,18 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "Profile": User,
 };
 
+// Map full labels to shorter mobile labels
+const labelMap: Record<string, string> = {
+  "Admin Overview": "Admin",
+  "My Classes": "Classes",
+  "User Management": "Users",
+  "Attendance": "Attendance",
+  "History": "History",
+  "Student Lookup": "Lookup",
+  "Archive": "Archive",
+  "Profile": "Profile",
+};
+
 export function BottomNav({ navLinks }: BottomNavProps) {
   const pathname = usePathname();
 
@@ -44,13 +56,14 @@ export function BottomNav({ navLinks }: BottomNavProps) {
             (pathname.startsWith(`${link.href}/`) && link.href !== "/admin" && link.href !== "/teacher");
           
           const Icon = iconMap[link.label] || LayoutDashboard;
+          const shortLabel = labelMap[link.label] || link.label;
 
           return (
             <Link
               key={link.href}
               href={link.href}
               className={cn(
-                "relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-all duration-300",
+                "relative flex flex-col items-center gap-1 px-2 py-2 rounded-lg transition-all duration-300",
                 isActive
                   ? "text-[#8b5cf6]"
                   : "text-[#94a3b8]"
@@ -59,8 +72,8 @@ export function BottomNav({ navLinks }: BottomNavProps) {
               {isActive && (
                 <span className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-[#8b5cf6] rounded-full" />
               )}
-              <Icon className="w-5 h-5" />
-              <span className="text-[0.6875rem] font-medium">{link.label}</span>
+              <Icon className="w-6 h-6" />
+              <span className="text-[0.75rem] font-semibold whitespace-nowrap">{shortLabel}</span>
             </Link>
           );
         })}

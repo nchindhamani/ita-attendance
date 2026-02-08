@@ -89,3 +89,23 @@ body {
     border-color: #6366f1;
   }
 }
+
+/* Mobile layout fixes */
+@media (max-width: 768px) {
+  /* Ensure sidebar is completely hidden on mobile */
+  aside[class*="hidden"] {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+  }
+  
+  /* Ensure main content uses full width on mobile */
+  main {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+}
+

@@ -31,20 +31,20 @@ export default async function DashboardLayout({
         ];
 
   return (
-    <div className="min-h-screen bg-[#fafafa] flex">
-      {/* Desktop Sidebar */}
+    <div className="min-h-screen bg-[#fafafa] flex flex-col md:flex-row">
+      {/* Desktop Sidebar - Hidden on mobile */}
       <Sidebar navLinks={navLinks} profile={profile} />
       
-      {/* Mobile Header */}
+      {/* Mobile Header - Only visible on mobile */}
       <header 
-        className="md:hidden sticky top-0 z-40 text-white px-6 py-5 shadow-lg"
+        className="md:hidden sticky top-0 z-50 w-full text-white px-6 py-5 shadow-lg"
         style={{
           background: "linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)",
         }}
       >
         <div className="flex items-center justify-center gap-3">
-          <div className="w-8 h-8 bg-[rgba(139,92,246,0.2)] rounded-lg flex items-center justify-center">
-            <Users className="w-4 h-4 text-white" />
+          <div className="w-9 h-9 bg-[rgba(139,92,246,0.3)] rounded-[10px] flex items-center justify-center">
+            <Users className="w-5 h-5 text-white" />
           </div>
           <div className="text-center">
             <div className="text-lg font-heading font-bold text-white leading-tight">
@@ -54,15 +54,15 @@ export default async function DashboardLayout({
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Main Content - Full width on mobile */}
+      <div className="flex-1 flex flex-col min-w-0 w-full md:w-auto">
         {/* Main Content Area */}
-        <main className="flex-1 px-4 py-6 md:px-8 md:py-12 pb-20 md:pb-12 max-w-7xl mx-auto w-full">
+        <main className="flex-1 w-full px-4 py-6 md:px-8 md:py-12 pb-24 md:pb-12 max-w-7xl mx-auto">
           {children}
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation */}
+      {/* Mobile Bottom Navigation - Only visible on mobile */}
       <BottomNav navLinks={navLinks} />
     </div>
   );
