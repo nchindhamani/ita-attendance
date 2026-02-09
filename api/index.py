@@ -25,10 +25,16 @@ except ImportError as e:
     print(f"Traceback: {traceback.format_exc()}")
 
 # Initialize FastAPI app only if imports succeeded
+# Vercel detects FastAPI by looking for an 'app' variable at module level
 if IMPORTS_OK:
     app = FastAPI(title="ITA Attendance API")
 else:
-    app = None
+    # Create a minimal app even if imports fail, so Vercel detects it
+    try:
+        from fastapi import FastAPI
+        app = FastAPI(title="ITA Attendance API - Error Mode")
+    except:
+        app = None
 
 # CORS middleware
 app.add_middleware(
