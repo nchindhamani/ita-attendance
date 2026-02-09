@@ -263,19 +263,13 @@ async def save_attendance(
     
     return {"success": "Attendance saved."}
 
-# Vercel serverless function handler
-# Vercel Python runtime expects a handler function that receives a request dict
-# Create Mangum adapter for FastAPI only if app is initialized
-if IMPORTS_OK and app:
-    try:
-        mangum_handler = Mangum(app, lifespan="off")
-    except Exception as e:
-        print(f"Mangum initialization error: {e}")
-        mangum_handler = None
-else:
-    mangum_handler = None
+# Vercel FastAPI Detection
+# Vercel automatically detects FastAPI apps by looking for 'app' variable
+# No custom handler needed - Vercel handles FastAPI routing automatically
+# The 'app' variable above is what Vercel uses
 
-def handler(request):
+# For custom handler (if needed), uncomment below:
+# def handler(request):
     """
     Vercel serverless function entry point
     Vercel provides request as a dict with method, path, headers, body, etc.
