@@ -3,19 +3,32 @@ FastAPI backend for ITA Attendance Portal
 Hosted as Vercel Serverless Function
 """
 import os
+import json
+import traceback
 from datetime import datetime, timezone
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from jose import JWTError, jwt
-from supabase import create_client, Client
-from mangum import Mangum
-import pytz
+# Try to import dependencies and handle errors gracefully
+try:
+    from fastapi import FastAPI, HTTPException, Depends, Header
+    from fastapi.responses import JSONResponse
+    from fastapi.middleware.cors import CORSMiddleware
+    from jose import JWTError, jwt
+    from supabase import create_client, Client
+    from mangum import Mangum
+    import pytz
+    IMPORTS_OK = True
+except ImportError as e:
+    IMPORTS_OK = False
+    IMPORT_ERROR = str(e)
+    print(f"Import error: {IMPORT_ERROR}")
+    print(f"Traceback: {traceback.format_exc()}")
 
-# Initialize FastAPI app
-app = FastAPI(title="ITA Attendance API")
+# Initialize FastAPI app only if imports succeeded
+if IMPORTS_OK:
+    app = FastAPI(title="ITA Attendance API")
+else:
+    app = None
 
 # CORS middleware
 app.add_middleware(
@@ -246,8 +259,15 @@ async def save_attendance(
 
 # Vercel serverless function handler
 # Vercel Python runtime expects a handler function that receives a request dict
-# Create Mangum adapter for FastAPI
-mangum_handler = Mangum(app, lifespan="off")
+# Create Mangum adapter for FastAPI only if app is initialized
+if IMPORTS_OK and app:
+    try:
+        mangum_handler = Mangum(app, lifespan="off")
+    except Exception as e:
+        print(f"Mangum initialization error: {e}")
+        mangum_handler = None
+else:
+    mangum_handler = None
 
 def handler(request):
     """
@@ -258,10 +278,36 @@ def handler(request):
     import json
     import traceback
     
+    # Check if imports failed
+    if not IMPORTS_OK:
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({
+                "error": "Import error",
+                "detail": IMPORT_ERROR,
+                "message": "Failed to import required dependencies. Check Vercel logs for details."
+            }, indent=2)
+        }
+    
+    if not app or not mangum_handler:
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({
+                "error": "Application not initialized",
+                "detail": "FastAPI app or Mangum handler failed to initialize"
+            }, indent=2)
+        }
+    
     try:
         # Debug: Log what we receive
-        print(f"Handler called with request: {type(request)}")
-        print(f"Request keys: {request.keys() if isinstance(request, dict) else 'not a dict'}")
+        print(f"Handler called with request type: {type(request)}")
+        if isinstance(request, dict):
+            print(f"Request keys: {list(request.keys())}")
+            print(f"Request path: {request.get('path', 'unknown')}")
+        else:
+            print(f"Request is not a dict: {request}")
         # Extract request details
         method = request.get("method", "GET")
         path = request.get("path", "/")
