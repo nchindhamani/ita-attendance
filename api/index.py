@@ -257,68 +257,99 @@ def handler(request):
     import asyncio
     import json
     
-    # Extract request details
-    method = request.get("method", "GET")
-    path = request.get("path", "/")
-    headers = request.get("headers", {})
-    body = request.get("body", b"")
-    query_params = request.get("queryStringParameters", {}) or {}
-    
-    # Build ASGI scope
-    query_string = "&".join([f"{k}={v}" for k, v in query_params.items()]).encode() if query_params else b""
-    
-    # Normalize headers
-    normalized_headers = []
-    for key, value in headers.items():
-        normalized_headers.append([key.lower().encode(), str(value).encode()])
-    
-    scope = {
-        "type": "http",
-        "method": method,
-        "path": path,
-        "query_string": query_string,
-        "headers": normalized_headers,
-        "server": ("localhost", 8000),
-        "client": ("127.0.0.1", 0),
-    }
-    
-    # Response collector
-    response_data = {"status": 200, "headers": [], "body": b""}
-    
-    async def receive():
-        return {"type": "http.request", "body": body if isinstance(body, bytes) else body.encode()}
-    
-    async def send(message):
-        if message["type"] == "http.response.start":
-            response_data["status"] = message["status"]
-            response_data["headers"] = message["headers"]
-        elif message["type"] == "http.response.body":
-            body_chunk = message.get("body", b"")
-            if body_chunk:
-                response_data["body"] += body_chunk if isinstance(body_chunk, bytes) else body_chunk.encode()
-    
-    # Run handler
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    loop.run_until_complete(mangum_handler(scope, receive, send))
-    
-    # Convert headers to dict
-    response_headers = {}
-    for header_name, header_value in response_data["headers"]:
-        name = header_name.decode() if isinstance(header_name, bytes) else header_name
-        value = header_value.decode() if isinstance(header_value, bytes) else header_value
-        response_headers[name] = value
-    
-    # Return response in Vercel format
-    body_str = response_data["body"].decode() if isinstance(response_data["body"], bytes) else response_data["body"]
-    
-    return {
-        "statusCode": response_data["status"],
-        "headers": response_headers,
-        "body": body_str
-    }
+        # Extract request details
+        method = request.get("method", "GET")
+        path = request.get("path", "/")
+        headers = request.get("headers", {}) or {}
+        body = request.get("body", b"")
+        query_params = request.get("queryStringParameters", {}) or {}
+        
+        # Handle body - could be string or bytes
+        if isinstance(body, str):
+            body_bytes = body.encode('utf-8')
+        elif body is None:
+            body_bytes = b""
+        else:
+            body_bytes = body if isinstance(body, bytes) else str(body).encode('utf-8')
+        
+        # Build ASGI scope
+        query_string = "&".join([f"{k}={v}" for k, v in query_params.items()]).encode() if query_params else b""
+        
+        # Normalize headers - ensure they're in the right format
+        normalized_headers = []
+        if isinstance(headers, dict):
+            for key, value in headers.items():
+                key_bytes = key.lower().encode() if isinstance(key, str) else key
+                value_bytes = str(value).encode() if isinstance(value, str) else value
+                normalized_headers.append([key_bytes, value_bytes])
+        
+        scope = {
+            "type": "http",
+            "method": method,
+            "path": path,
+            "query_string": query_string,
+            "headers": normalized_headers,
+            "server": ("localhost", 8000),
+            "client": ("127.0.0.1", 0),
+        }
+        
+        # Response collector
+        response_data = {"status": 200, "headers": [], "body": b""}
+        
+        async def receive():
+            return {"type": "http.request", "body": body_bytes}
+        
+        async def send(message):
+            if message["type"] == "http.response.start":
+                response_data["status"] = message["status"]
+                response_data["headers"] = message.get("headers", [])
+            elif message["type"] == "http.response.body":
+                body_chunk = message.get("body", b"")
+                if body_chunk:
+                    if isinstance(body_chunk, str):
+                        body_chunk = body_chunk.encode('utf-8')
+                    response_data["body"] += body_chunk
+        
+        # Run handler
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        loop.run_until_complete(mangum_handler(scope, receive, send))
+        
+        # Convert headers to dict
+        response_headers = {}
+        for header_name, header_value in response_data["headers"]:
+            name = header_name.decode() if isinstance(header_name, bytes) else str(header_name)
+            value = header_value.decode() if isinstance(header_value, bytes) else str(header_value)
+            response_headers[name] = value
+        
+        # Return response in Vercel format
+        body_str = response_data["body"].decode('utf-8') if isinstance(response_data["body"], bytes) else str(response_data["body"])
+        
+        return {
+            "statusCode": response_data["status"],
+            "headers": response_headers,
+            "body": body_str
+        }
+    except Exception as e:
+        # Return error response
+        import traceback
+        error_msg = str(e)
+        traceback_str = traceback.format_exc()
+        print(f"Handler error: {error_msg}")
+        print(f"Traceback: {traceback_str}")
+        
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({
+                "error": "Internal server error",
+                "detail": error_msg,
+                "traceback": traceback_str
+            })
+        }
 
