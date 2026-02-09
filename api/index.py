@@ -28,6 +28,15 @@ except ImportError as e:
 # Vercel detects FastAPI by looking for an 'app' variable at module level
 if IMPORTS_OK:
     app = FastAPI(title="ITA Attendance API")
+    
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Configure appropriately for production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 else:
     # Create a minimal app even if imports fail, so Vercel detects it
     try:
@@ -35,15 +44,6 @@ else:
         app = FastAPI(title="ITA Attendance API - Error Mode")
     except:
         app = None
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Environment variables
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
