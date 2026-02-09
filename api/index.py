@@ -163,7 +163,7 @@ async def root():
     """Health check endpoint"""
     return {"status": "ok", "service": "ITA Attendance API"}
 
-@app.post("/api/attendance", response_model=AttendanceResponse)
+@app.post("/attendance", response_model=AttendanceResponse)
 async def save_attendance(
     payload: SaveAttendanceRequest,
     profile: dict = Depends(get_current_profile)
@@ -264,6 +264,13 @@ def handler(request):
         headers = request.get("headers", {}) or {}
         body = request.get("body", b"")
         query_params = request.get("queryStringParameters", {}) or {}
+        
+        # Strip /api prefix from path since Vercel rewrite adds it
+        # FastAPI routes are defined without /api prefix
+        if path.startswith("/api"):
+            path = path[4:]  # Remove "/api"
+        if not path or path == "":
+            path = "/"
         
         # Handle body - could be string or bytes
         if isinstance(body, str):
