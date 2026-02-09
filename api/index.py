@@ -256,8 +256,12 @@ def handler(request):
     """
     import asyncio
     import json
+    import traceback
     
     try:
+        # Debug: Log what we receive
+        print(f"Handler called with request: {type(request)}")
+        print(f"Request keys: {request.keys() if isinstance(request, dict) else 'not a dict'}")
         # Extract request details
         method = request.get("method", "GET")
         path = request.get("path", "/")
@@ -343,20 +347,21 @@ def handler(request):
             "body": body_str
         }
     except Exception as e:
-        # Return error response
-        import traceback
+        # Return error response with full traceback
         error_msg = str(e)
         traceback_str = traceback.format_exc()
         print(f"Handler error: {error_msg}")
         print(f"Traceback: {traceback_str}")
         
+        # Return detailed error for debugging
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps({
                 "error": "Internal server error",
                 "detail": error_msg,
-                "traceback": traceback_str
-            })
+                "type": type(e).__name__,
+                "traceback": traceback_str.split('\n')  # Split for readability
+            }, indent=2)
         }
 
