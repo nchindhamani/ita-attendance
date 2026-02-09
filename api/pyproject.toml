@@ -1,0 +1,15 @@
+[project]
+name = "api"
+version = "0.1.0"
+description = "ITA Attendance Portal FastAPI Backend"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.104.1",
+    "uvicorn>=0.24.0",
+    "supabase>=2.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    "python-multipart>=0.0.6",
+    "pytz>=2023.3",
+    "mangum>=0.17.0",
+]
