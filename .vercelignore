@@ -1,4 +1,4 @@
-# Don't ignore python-api directory - it needs to be deployed
+# Don't ignore api directory - it needs to be deployed
 !.venv/
 !__pycache__/
 *.pyc
