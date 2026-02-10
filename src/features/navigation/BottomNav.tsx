@@ -1,7 +1,4 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { 
   LayoutDashboard, 
@@ -45,7 +42,8 @@ const labelMap: Record<string, string> = {
 };
 
 export function BottomNav({ navLinks }: BottomNavProps) {
-  const pathname = usePathname();
+  const location = useLocation();
+  const pathname = location.pathname;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-[#e5e5e5] px-2 py-2 md:hidden" style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))' }}>
@@ -61,7 +59,7 @@ export function BottomNav({ navLinks }: BottomNavProps) {
           return (
             <Link
               key={link.href}
-              href={link.href}
+              to={link.href}
               className={cn(
                 "relative flex flex-col items-center gap-1 px-2 py-2 rounded-lg transition-all duration-300",
                 isActive

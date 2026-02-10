@@ -45,8 +45,8 @@ else:
         app = None
 
 # Environment variables
-SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-SUPABASE_ANON_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.environ.get("VITE_SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
 
@@ -180,6 +180,11 @@ class AttendanceResponse(BaseModel):
 async def root():
     """Health check endpoint"""
     return {"status": "ok", "service": "ITA Attendance API"}
+
+@app.get("/test")
+async def test():
+    """Test endpoint to verify Python backend is accessible"""
+    return {"status": "Python is alive", "message": "Backend connection successful"}
 
 @app.post("/attendance", response_model=AttendanceResponse)
 async def save_attendance(

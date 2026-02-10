@@ -1,8 +1,5 @@
-"use client";
-
-import Link from "next/link";
+import { Link, useLocation } from "react-router-dom";
 import { Users } from "lucide-react";
-import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/features/auth/SignOutButton";
 
@@ -20,7 +17,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ navLinks, profile }: SidebarProps) {
-  const pathname = usePathname();
+  const location = useLocation();
+  const pathname = location.pathname;
 
   return (
     <aside 
@@ -43,7 +41,7 @@ export function Sidebar({ navLinks, profile }: SidebarProps) {
       <div className="relative z-10 flex flex-col h-full">
         {/* Sidebar Header */}
         <div className="px-8 pb-8 pt-8 border-b border-white/10 flex-shrink-0">
-          <Link href="/dashboard" className="flex items-center gap-3 group">
+          <Link to="/dashboard" className="flex items-center gap-3 group">
             <div className="w-10 h-10 bg-[rgba(139,92,246,0.2)] rounded-[10px] flex items-center justify-center">
               <Users className="w-5 h-5 text-white" />
             </div>
@@ -65,7 +63,7 @@ export function Sidebar({ navLinks, profile }: SidebarProps) {
               return (
                 <Link
                   key={link.href}
-                  href={link.href}
+                  to={link.href}
                   className={cn(
                     "relative flex items-center gap-4 px-5 py-3 rounded-xl transition-all duration-300 ease-smooth",
                     isActive
