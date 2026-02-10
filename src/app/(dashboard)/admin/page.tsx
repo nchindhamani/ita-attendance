@@ -12,7 +12,6 @@ export default async function AdminOverviewPage() {
     supabase
       .from("profiles")
       .select("*", { count: "exact", head: true })
-      .eq("role", "teacher")
       .eq("is_approved", false),
     supabase
       .from("profiles")

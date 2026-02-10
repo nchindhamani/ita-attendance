@@ -12,6 +12,7 @@ const nextConfig = {
       ];
     }
     // In production, Vercel handles routing via vercel.json
+    // /api/* routes to /python-api/index.py
     return [];
   },
 };

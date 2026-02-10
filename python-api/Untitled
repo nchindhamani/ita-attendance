@@ -1,0 +1,3 @@
+Try renaming your root Python folder from /api to something unique, like /python-api.
+
+Update Config: If you rename the folder, you must update your vercel.json to point to the new path (e.g., "destination": "/python-api/index.py").
