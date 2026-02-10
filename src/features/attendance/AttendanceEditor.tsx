@@ -149,9 +149,9 @@ export function AttendanceEditor({
         schoolYear,
         studentIdentifier: studentIdentifier.trim(),
         fullName: studentName.trim(),
-      });
-      if (result?.error) {
-        toast.error(result.error);
+      }).then((result) => {
+        if (result?.error) {
+          toast.error(result.error);
       } else {
         toast.success(result?.success ?? "Student added.");
         setStudentIdentifier("");
