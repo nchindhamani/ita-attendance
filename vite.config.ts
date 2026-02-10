@@ -9,6 +9,8 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // Prevent Vite from trying to resolve Next.js modules
+    dedupe: ['react', 'react-dom'],
   },
   build: {
     outDir: 'dist',
@@ -19,13 +21,6 @@ export default defineConfig({
         main: path.resolve(__dirname, 'index.html'),
       },
     },
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-    // Prevent Vite from trying to resolve Next.js modules
-    dedupe: ['react', 'react-dom'],
   },
   server: {
     port: 3000,
