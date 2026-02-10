@@ -44,10 +44,11 @@ type ExistingAttendance = Record<
   { status: AttendanceStatus; comments?: string | null }
 >;
 
-const statusOptions: { value: AttendanceStatus; label: string }[] = [
-  { value: "present", label: "Present" },
-  { value: "absent", label: "Absent" },
-  { value: "late", label: "Late" },
+// Status options for attendance (currently unused but kept for future use)
+// const statusOptions: { value: AttendanceStatus; label: string }[] = [
+//   { value: "present", label: "Present" },
+//   { value: "absent", label: "Absent" },
+//   { value: "late", label: "Late" },
   { value: "left_early", label: "Left Early" },
 ];
 
@@ -121,18 +122,19 @@ export function AttendanceEditor({
       toast.error("Attendance is locked after 3:00 PM PT.");
       return;
     }
-    startTransition(async () => {
-      const result = await saveAttendance({
+    startTransition(() => {
+      saveAttendance({
         sectionId,
         attendanceDate,
         schoolYear,
         entries,
+      }).then((result) => {
+        if (result?.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(result?.success ?? "Attendance saved.");
+        }
       });
-      if (result?.error) {
-        toast.error(result.error);
-      } else {
-        toast.success(result?.success ?? "Attendance saved.");
-      }
     });
   };
 
@@ -141,8 +143,8 @@ export function AttendanceEditor({
       toast.error("Enter a student ID and name.");
       return;
     }
-    startTransition(async () => {
-      const result = await addStudent({
+    startTransition(() => {
+      addStudent({
         sectionId,
         schoolYear,
         studentIdentifier: studentIdentifier.trim(),

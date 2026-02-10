@@ -17,13 +17,14 @@ export function ArchiveActions({
   const [isPending, startTransition] = useTransition();
 
   const handlePurge = () => {
-    startTransition(async () => {
-      const result = await purgeArchive(confirmed);
-      if (result?.error) {
-        toast.error(result.error);
-      } else {
-        toast.success(result?.success ?? "Archive purged.");
-      }
+    startTransition(() => {
+      purgeArchive(confirmed).then((result) => {
+        if (result?.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(result?.success ?? "Archive purged.");
+        }
+      });
     });
   };
 
