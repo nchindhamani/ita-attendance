@@ -3,7 +3,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useFormState, useFormStatus } from "@/lib/react-dom-polyfill";
 // TODO: Convert to API call to /api/profile
 // import { updateProfile } from "@/app/(dashboard)/profile/actions";
 const updateProfile = async (params: any): Promise<{ success?: string; error?: string }> => {

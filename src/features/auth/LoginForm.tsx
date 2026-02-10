@@ -2,7 +2,7 @@
 // TODO: Convert to use React state instead of Next.js useFormState
 "use client";
 
-import { useFormState } from "react-dom";
+import { useFormState } from "@/lib/react-dom-polyfill";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
