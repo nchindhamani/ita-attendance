@@ -6,7 +6,11 @@ import { useFormState } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { signInWithPassword } from "@/app/(auth)/auth/actions";
+// TODO: Convert to API call to /api/auth/login
+// import { signInWithPassword } from "@/app/(auth)/auth/actions";
+const signInWithPassword = async (prevState: any, formData: FormData): Promise<{ error?: string }> => {
+  return { error: "Not implemented - convert to API call" };
+};
 
 const initialState: { error?: string } = {};
 

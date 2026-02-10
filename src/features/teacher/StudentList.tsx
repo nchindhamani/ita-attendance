@@ -1,5 +1,9 @@
 import { useState, useTransition } from "react";
-import { updateStudent } from "@/app/(dashboard)/attendance/actions";
+// TODO: Convert to API call to /api/attendance
+// import { updateStudent } from "@/app/(dashboard)/attendance/actions";
+const updateStudent = async (params: any): Promise<{ success?: string; error?: string }> => {
+  return { error: "Not implemented - convert to API call" };
+};
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

@@ -4,7 +4,11 @@
 
 import { useEffect } from "react";
 import { useFormState, useFormStatus } from "react-dom";
-import { updateProfile } from "@/app/(dashboard)/profile/actions";
+// TODO: Convert to API call to /api/profile
+// import { updateProfile } from "@/app/(dashboard)/profile/actions";
+const updateProfile = async (params: any): Promise<{ success?: string; error?: string }> => {
+  return { error: "Not implemented - convert to API call" };
+};
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";

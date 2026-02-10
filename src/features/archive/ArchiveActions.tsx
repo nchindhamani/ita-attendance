@@ -4,7 +4,11 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { purgeArchive } from "@/app/(dashboard)/admin/archive/actions";
+// TODO: Convert to API call to /api/archive
+// import { purgeArchive } from "@/app/(dashboard)/admin/archive/actions";
+const purgeArchive = async (confirmed: boolean): Promise<{ success?: string; error?: string }> => {
+  return { error: "Not implemented - convert to API call" };
+};
 
 export function ArchiveActions({
   status,
