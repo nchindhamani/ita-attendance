@@ -33,7 +33,6 @@ function getInitials(name: string | null): string {
 }
 
 export function ProfileView({ profileData }: ProfileViewProps) {
-  const router = useRouter();
   const [isEditOpen, setIsEditOpen] = useState(false);
 
   const initials = getInitials(profileData.full_name);
