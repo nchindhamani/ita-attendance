@@ -21,5 +21,16 @@
     }
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "src/app", "src/lib/auth.ts", "src/lib/supabase/server.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/app/**/*",
+    "src/lib/auth.ts",
+    "src/lib/supabase/server.ts",
+    "src/features/auth/SignupForm.tsx",
+    "src/features/auth/LoginForm.tsx",
+    "src/features/auth/ResetPasswordForm.tsx",
+    "src/features/auth/UpdatePasswordForm.tsx",
+    "src/features/profile/ProfileForm.tsx"
+  ]
 }

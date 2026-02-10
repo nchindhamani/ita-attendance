@@ -51,21 +51,20 @@ export function StudentList({ students, sectionId }: StudentListProps) {
       return;
     }
 
-    startTransition(async () => {
-      const result = await updateStudent({
+    startTransition(() => {
+      updateStudent({
         studentId: editStudentId,
         studentIdentifier: editStudentIdentifier.trim(),
         fullName: editStudentName.trim(),
         sectionId,
+      }).then((result) => {
+        if (result?.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(result?.success ?? "Student updated successfully!");
+          setEditStudentId(null);
+        }
       });
-
-      if (result?.error) {
-        toast.error(result.error);
-      } else {
-        toast.success(result?.success ?? "Student updated successfully!");
-        setEditStudentId(null);
-        // Note: router.refresh() is not needed in React Router - component will re-render automatically
-      }
     });
   };
 

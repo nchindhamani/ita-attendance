@@ -1,7 +1,4 @@
-"use client";
-
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -182,7 +179,7 @@ export function ProfileView({ profileData }: ProfileViewProps) {
             initialData={profileData}
             onSuccess={() => {
               setIsEditOpen(false);
-              router.refresh();
+              // Note: router.refresh() not needed in React Router
             }}
           />
         </DialogContent>
