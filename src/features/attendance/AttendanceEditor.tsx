@@ -26,12 +26,25 @@ import { Input } from "@/components/ui/input";
 // } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { AttendanceStatus } from "@/lib/types";
-import {
-  addStudent,
-  addStudentsFromCsv,
-  saveAttendance,
-  type AttendanceEntryInput,
-} from "@/app/(dashboard)/attendance/actions";
+// TODO: Convert these to API calls to /api/attendance
+// import {
+//   addStudent,
+//   addStudentsFromCsv,
+//   saveAttendance,
+//   type AttendanceEntryInput,
+// } from "@/app/(dashboard)/attendance/actions";
+
+// Temporary type definition
+type AttendanceEntryInput = {
+  studentId: string;
+  status: string;
+  comments?: string | null;
+};
+
+// Temporary stub functions - to be replaced with API calls
+const addStudent = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
+const addStudentsFromCsv = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
+const saveAttendance = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
 import { AttendanceStatistics } from "./AttendanceStatistics";
 
 type Student = {

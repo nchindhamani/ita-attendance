@@ -15,7 +15,7 @@ export function StudentAttendanceSearch({
   initialStudentId = "",
   initialYear = "",
   availableYears,
-  hasError = false,
+  hasError: boolean = false, // Currently unused but kept for future error display
 }: StudentAttendanceSearchProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
