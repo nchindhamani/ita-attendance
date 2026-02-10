@@ -15,7 +15,17 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       external: ['next/cache', 'next/navigation', 'next/headers', '@supabase/ssr'],
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+      },
     },
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+    // Prevent Vite from trying to resolve Next.js modules
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     port: 3000,
