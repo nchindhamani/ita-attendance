@@ -15,14 +15,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+// Table components imported but not used in current implementation
+// import {
+//   Table,
+//   TableBody,
+//   TableCell,
+//   TableHead,
+//   TableHeader,
+//   TableRow,
+// } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { AttendanceStatus } from "@/lib/types";
 import {
@@ -49,8 +50,8 @@ type ExistingAttendance = Record<
 //   { value: "present", label: "Present" },
 //   { value: "absent", label: "Absent" },
 //   { value: "late", label: "Late" },
-  { value: "left_early", label: "Left Early" },
-];
+//   { value: "left_early", label: "Left Early" },
+// ];
 
 export function AttendanceEditor({
   sectionId,
@@ -152,12 +153,13 @@ export function AttendanceEditor({
       }).then((result) => {
         if (result?.error) {
           toast.error(result.error);
-      } else {
-        toast.success(result?.success ?? "Student added.");
-        setStudentIdentifier("");
-        setStudentName("");
-        setDialogOpen(false);
-      }
+        } else {
+          toast.success(result?.success ?? "Student added.");
+          setStudentIdentifier("");
+          setStudentName("");
+          setDialogOpen(false);
+        }
+      });
     });
   };
 
