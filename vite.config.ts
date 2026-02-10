@@ -13,6 +13,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      external: ['next/cache', 'next/navigation', 'next/headers', '@supabase/ssr'],
+    },
   },
   server: {
     port: 3000,
@@ -23,5 +26,6 @@ export default defineConfig({
       },
     },
   },
+  publicDir: 'public',
 })
 

@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO: This file is deprecated - server-side Supabase not needed in Vite
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
