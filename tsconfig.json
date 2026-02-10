@@ -21,5 +21,5 @@
     }
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "src/app"]
+  "exclude": ["node_modules", "dist", "src/app", "src/lib/auth.ts", "src/lib/supabase/server.ts"]
 }

@@ -1,6 +1,4 @@
-"use client";
-
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { updateStudent } from "@/app/(dashboard)/attendance/actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +17,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
 
 interface Student {
   id: string;
@@ -33,7 +30,6 @@ interface StudentListProps {
 }
 
 export function StudentList({ students, sectionId }: StudentListProps) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editStudentId, setEditStudentId] = useState<string | null>(null);
   const [editStudentIdentifier, setEditStudentIdentifier] = useState("");
@@ -68,7 +64,7 @@ export function StudentList({ students, sectionId }: StudentListProps) {
       } else {
         toast.success(result?.success ?? "Student updated successfully!");
         setEditStudentId(null);
-        router.refresh();
+        // Note: router.refresh() is not needed in React Router - component will re-render automatically
       }
     });
   };

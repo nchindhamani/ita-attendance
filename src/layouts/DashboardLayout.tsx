@@ -1,7 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { Users } from 'lucide-react'
 import { useRequireActiveProfile } from '@/lib/auth-client'
-import { SignOutButton } from '@/features/auth/SignOutButton'
 import { Sidebar } from '@/features/navigation/Sidebar'
 import { BottomNav } from '@/features/navigation/BottomNav'
 
