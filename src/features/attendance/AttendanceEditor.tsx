@@ -42,9 +42,77 @@ type AttendanceEntryInput = {
   comments?: string | null;
 };
 
-// Temporary stub functions - to be replaced with API calls
+// API call functions
 const supabase = createSupabaseBrowserClient();
-const addStudent = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
+
+const addStudent = async (params: {
+  sectionId: string;
+  schoolYear: string;
+  studentIdentifier: string;
+  fullName: string;
+}): Promise<{ success?: string; error?: string }> => {
+  try {
+    // Get JWT token from Supabase session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { error: "Not authenticated. Please sign in again." };
+    }
+
+    // Call Python API
+    const response = await fetch("/api/students", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sectionId: params.sectionId,
+        schoolYear: params.schoolYear,
+        studentIdentifier: params.studentIdentifier,
+        fullName: params.fullName,
+      }),
+    });
+
+    // Check if response has content before parsing
+    const contentType = response.headers.get("content-type");
+    const responseText = await response.text();
+
+    // Handle empty responses
+    if (!responseText || responseText.trim() === "") {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.` 
+      };
+    }
+
+    // Check if response is JSON
+    if (!contentType || !contentType.includes("application/json")) {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}` 
+      };
+    }
+
+    // Parse JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      return { 
+        error: `Failed to parse server response: ${responseText.substring(0, 200)}` 
+      };
+    }
+
+    if (!response.ok) {
+      return { error: data.error || data.detail || `Server error: ${response.status}` };
+    }
+
+    return data;
+  } catch (err) {
+    return { 
+      error: err instanceof Error ? err.message : "Failed to add student" 
+    };
+  }
+};
+
 const addStudentsFromCsv = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
 
 // Real implementation: Call Python API

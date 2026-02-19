@@ -1,14 +1,8 @@
 // @ts-nocheck
-// TODO: Convert to use React state instead of Next.js useFormState/useFormStatus
 "use client";
 
-import { useEffect } from "react";
-import { useFormState, useFormStatus } from "@/lib/react-dom-polyfill";
-// TODO: Convert to API call to /api/profile
-// import { updateProfile } from "@/app/(dashboard)/profile/actions";
-const updateProfile = async (params: any): Promise<{ success?: string; error?: string }> => {
-  return { error: "Not implemented - convert to API call" };
-};
+import { useState, useEffect } from "react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -28,37 +22,91 @@ interface ProfileFormProps {
   onSuccess?: () => void;
 }
 
-function SubmitButton() {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" disabled={pending}>
-      {pending ? "Saving..." : "Save Changes"}
-    </Button>
-  );
-}
-
 export function ProfileForm({ initialData, onSuccess }: ProfileFormProps) {
-  const [state, formAction] = useFormState(updateProfile, null);
+  const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const supabase = createSupabaseBrowserClient();
 
-  // Show toast on success/error
-  useEffect(() => {
-    if (state?.success) {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsPending(true);
+    setError(null);
+
+    try {
+      // Get JWT token from Supabase session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("Not authenticated. Please sign in again.");
+      }
+
+      // Get form data
+      const formData = new FormData(e.currentTarget);
+      const full_name = String(formData.get("full_name") ?? "").trim();
+      const mobile = String(formData.get("mobile") ?? "").trim();
+
+      // Call Python API
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          full_name,
+          mobile: mobile || null,
+        }),
+      });
+
+      // Check if response has content before parsing
+      const contentType = response.headers.get("content-type");
+      const responseText = await response.text();
+
+      // Handle empty responses
+      if (!responseText || responseText.trim() === "") {
+        throw new Error(`Server error: ${response.status} ${response.statusText}. Empty response from server.`);
+      }
+
+      // Check if response is JSON
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(`Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}`);
+      }
+
+      // Parse JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        throw new Error(`Failed to parse server response: ${responseText.substring(0, 200)}`);
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || data.detail || `Server error: ${response.status}`);
+      }
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      // Success
       toast.success("Profile updated successfully!");
       if (onSuccess) {
-        // Small delay to allow toast to show
         setTimeout(() => {
           onSuccess();
         }, 500);
       }
-    } else if (state?.error) {
-      toast.error(state.error);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to update profile";
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setIsPending(false);
     }
-  }, [state, onSuccess]);
+  };
 
   const isTeacher = initialData.role === "teacher";
 
   return (
-    <form action={formAction} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6">
       {/* Full Name - Editable, Required */}
       <div className="space-y-2">
         <label htmlFor="full_name" className="text-sm font-semibold text-[#1e293b]">
@@ -195,12 +243,14 @@ export function ProfileForm({ initialData, onSuccess }: ProfileFormProps) {
         />
       </div>
 
-      {state?.error && !state.success && (
-        <p className="text-sm text-destructive">{state.error}</p>
+      {error && (
+        <p className="text-sm text-destructive">{error}</p>
       )}
 
       <div className="flex justify-end gap-3 pt-4">
-        <SubmitButton />
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Saving..." : "Save Changes"}
+        </Button>
       </div>
     </form>
   );
