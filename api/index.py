@@ -231,6 +231,13 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
     
     response = supabase.table("profiles").select("*").eq("id", user_id).maybe_single().execute()
     
+    if response is None:
+        raise HTTPException(status_code=500, detail="Supabase returned None for profile query")
+    
+    if hasattr(response, 'error') and response.error:
+        print(f"Supabase error in profile query: {response.error}")
+        raise HTTPException(status_code=500, detail=f"Supabase error: {response.error}")
+    
     if not response.data:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -358,6 +365,13 @@ async def save_attendance(
             "school_year", payload.schoolYear
         ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
         
+        if holiday_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for holiday query")
+        
+        if hasattr(holiday_response, 'error') and holiday_response.error:
+            print(f"Supabase error in holiday query: {holiday_response.error}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {holiday_response.error}")
+        
         if holiday_response.data:
             return JSONResponse(
                 status_code=400,
@@ -371,6 +385,14 @@ async def save_attendance(
         students_response = supabase.table("students").select(
             "id,student_identifier,section_id"
         ).in_("id", student_ids).execute()
+        
+        if students_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for students query")
+        
+        if hasattr(students_response, 'error') and students_response.error:
+            print(f"Supabase error in students query: {students_response.error}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {students_response.error}")
+        
         print(f"Found {len(students_response.data or [])} students")
         
         if not students_response.data:
@@ -410,6 +432,14 @@ async def save_attendance(
             upserts,
             on_conflict="student_id,attendance_date"
         ).execute()
+        
+        if attendance_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for attendance upsert")
+        
+        if hasattr(attendance_response, 'error') and attendance_response.error:
+            print(f"Supabase error in attendance upsert: {attendance_response.error}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {attendance_response.error}")
+        
         print(f"Upsert response: {attendance_response.data is not None}")
         
         if attendance_response.data is None:
