@@ -12,7 +12,6 @@ import time
 from datetime import datetime, timezone
 from typing import Optional, List
 from functools import lru_cache
-import httpx
 
 # Import dependencies - Vercel will install from requirements.txt
 from fastapi import FastAPI, HTTPException, Depends, Header, APIRouter, Request
@@ -21,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 import jwt
 from jwt.exceptions import InvalidTokenError, DecodeError
+from jwt import PyJWKClient
 from supabase import create_client, Client
 import pytz
 import traceback
@@ -97,54 +97,29 @@ def get_supabase_project_id() -> Optional[str]:
         pass
     return None
 
-@lru_cache(maxsize=1)
-def get_jwks() -> dict:
-    """Fetch JWKS from Supabase's well-known endpoint"""
-    project_id = get_supabase_project_id()
-    if not project_id:
-        raise HTTPException(status_code=500, detail="Cannot determine Supabase project ID")
-    
-    jwks_url = f"https://{project_id}.supabase.co/auth/v1/.well-known/jwks.json"
-    
-    try:
-        response = httpx.get(jwks_url, timeout=5.0)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Error fetching JWKS: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch JWKS: {str(e)}")
+# JWKS client for fetching public keys (cached)
+_jwks_client: Optional[PyJWKClient] = None
 
-def get_public_key_from_jwks(kid: str) -> str:
-    """Get public key from JWKS by key ID"""
-    jwks = get_jwks()
-    
-    for key in jwks.get("keys", []):
-        if key.get("kid") == kid:
-            # Convert JWK to PEM format for ES256
-            from cryptography.hazmat.primitives.asymmetric import ec
-            from cryptography.hazmat.primitives import serialization
-            from cryptography.hazmat.backends import default_backend
-            
-            # Extract x and y coordinates from JWK
-            x = base64.urlsafe_b64decode(key["x"] + "==")
-            y = base64.urlsafe_b64decode(key["y"] + "==")
-            
-            # Reconstruct the public key
-            public_numbers = ec.EllipticCurvePublicNumbers(
-                int.from_bytes(x, "big"),
-                int.from_bytes(y, "big"),
-                ec.SECP256R1()
-            )
-            public_key = public_numbers.public_key(default_backend())
-            
-            # Convert to PEM format
-            pem = public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
-            return pem.decode("utf-8")
-    
-    raise HTTPException(status_code=401, detail=f"Key ID {kid} not found in JWKS")
+def get_jwks_client() -> PyJWKClient:
+    """Get or create JWKS client for Supabase"""
+    global _jwks_client
+    if _jwks_client is None:
+        project_id = get_supabase_project_id()
+        if not project_id:
+            raise HTTPException(status_code=500, detail="Cannot determine Supabase project ID")
+        
+        jwks_url = f"https://{project_id}.supabase.co/auth/v1/.well-known/jwks.json"
+        _jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+    return _jwks_client
+
+def get_signing_key_from_jwks(kid: str):
+    """Get signing key from JWKS by key ID"""
+    jwks_client = get_jwks_client()
+    try:
+        signing_key = jwks_client.get_signing_key(kid)
+        return signing_key.key
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Failed to get signing key from JWKS: {str(e)}")
 
 # Initialize Supabase clients
 def get_supabase_client() -> Client:
@@ -201,8 +176,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
                 raise HTTPException(status_code=401, detail="Token missing key ID (kid) for ES256 verification")
             
             try:
-                public_key = get_public_key_from_jwks(key_id)
-                verification_key = public_key
+                verification_key = get_signing_key_from_jwks(key_id)
                 print("Using public key from JWKS for ES256 verification")
             except HTTPException:
                 raise
