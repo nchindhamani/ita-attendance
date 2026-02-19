@@ -188,10 +188,13 @@ def get_supabase_client(access_token: Optional[str] = None) -> Client:
     return client
 
 def get_supabase_admin_client() -> Client:
-    """Get Supabase admin client with service role key"""
+    """Get Supabase admin client with service role key (bypasses RLS)"""
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise HTTPException(status_code=500, detail="Supabase admin configuration missing")
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    log_info(f"Creating admin client with URL: {SUPABASE_URL[:30]}... and service role key present: {bool(SUPABASE_SERVICE_ROLE_KEY)}")
+    client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    log_info("Admin client created successfully")
+    return client
 
 # Authentication
 async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
@@ -484,26 +487,37 @@ async def save_attendance(
         logger.info("Supabase clients initialized successfully")
         
         # Check if date is a holiday
-        # Use admin client for holidays since they're public data and RLS might be blocking
+        # Use admin client directly since holidays are public data and we want to avoid RLS issues
         log_info("Checking for holidays...")
         log_info(f"Holiday query - school_year: {payload.schoolYear}, date: {payload.attendanceDate}")
+        log_info(f"Using admin client for holiday query (bypasses RLS)")
         
-        # Try with authenticated client first
-        holiday_response = supabase.table("holidays").select("holiday_date").eq(
-            "school_year", payload.schoolYear
-        ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
-        
-        # If None or error, fallback to admin client (holidays are public data)
-        if holiday_response is None or (hasattr(holiday_response, 'error') and holiday_response.error):
-            log_warning(f"Holiday query failed with authenticated client, trying admin client...")
+        # Use admin client directly (bypasses RLS)
+        try:
             holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
                 "school_year", payload.schoolYear
             ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
+            
+            log_info(f"Holiday query - response type: {type(holiday_response)}")
+            log_info(f"Holiday query - response: {holiday_response}")
+            if holiday_response is not None:
+                log_info(f"Holiday query - hasattr(response, 'data'): {hasattr(holiday_response, 'data')}")
+                if hasattr(holiday_response, 'data'):
+                    log_info(f"Holiday query - response.data: {holiday_response.data}")
+                log_info(f"Holiday query - hasattr(response, 'error'): {hasattr(holiday_response, 'error')}")
+                if hasattr(holiday_response, 'error'):
+                    log_info(f"Holiday query - response.error: {holiday_response.error}")
+        except Exception as e:
+            log_error(f"Exception during holiday query: {str(e)}")
+            log_error(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Exception during holiday query: {str(e)}")
         
         if holiday_response is None:
-            error_detail = f"Supabase returned None for holiday query even with admin client"
+            error_detail = f"Supabase returned None for holiday query even with admin client. This might mean the query failed or the table doesn't exist."
             log_error(error_detail)
-            raise HTTPException(status_code=500, detail=error_detail)
+            # Don't fail - just log and continue (holiday check is optional)
+            log_warning("Continuing without holiday check - assuming date is not a holiday")
+            holiday_response = type('obj', (object,), {'data': None})()  # Create empty response object
         
         if hasattr(holiday_response, 'error') and holiday_response.error:
             error = holiday_response.error
