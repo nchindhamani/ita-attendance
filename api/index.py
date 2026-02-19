@@ -9,12 +9,14 @@ from datetime import datetime, timezone
 from typing import Optional, List
 
 # Import dependencies - Vercel will install from requirements.txt
-from fastapi import FastAPI, HTTPException, Depends, Header, APIRouter
+from fastapi import FastAPI, HTTPException, Depends, Header, APIRouter, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from jose import JWTError, jwt
 from supabase import create_client, Client
 import pytz
+import traceback
 
 # Initialize FastAPI app
 # Vercel detects FastAPI by looking for an 'app' variable at module level
@@ -33,6 +35,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global exception handler to ensure all errors return JSON
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions and return JSON error response"""
+    error_detail = str(exc)
+    # Log the full traceback for debugging (in production, log to a service)
+    print(f"Unhandled exception: {error_detail}")
+    print(f"Traceback: {traceback.format_exc()}")
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": error_detail
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors and return JSON"""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "Validation error",
+            "detail": str(exc)
+        }
+    )
 
 # Environment variables
 SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "")
