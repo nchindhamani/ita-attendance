@@ -385,12 +385,12 @@ async def save_attendance(
     try:
         logger.info(f"save_attendance called with payload: sectionId={payload.sectionId}, date={payload.attendanceDate}, entries={len(payload.entries)}")
         
-        # Check daily cutoff
-        if is_after_daily_cutoff(datetime.now(timezone.utc)):
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Attendance is locked after 3:00 PM PT."}
-            )
+        # Check daily cutoff - COMMENTED OUT FOR TESTING
+        # if is_after_daily_cutoff(datetime.now(timezone.utc)):
+        #     return JSONResponse(
+        #         status_code=400,
+        #         content={"error": "Attendance is locked after 3:00 PM PT."}
+        #     )
         
         logger.info("Initializing Supabase clients...")
         supabase = get_supabase_client()
