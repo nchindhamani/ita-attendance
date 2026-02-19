@@ -151,11 +151,31 @@ def get_signing_key_from_jwks(kid: str):
         raise HTTPException(status_code=401, detail=f"Failed to get signing key from JWKS: {str(e)}")
 
 # Initialize Supabase clients
-def get_supabase_client() -> Client:
-    """Get Supabase client with anon key"""
+def get_supabase_client(access_token: Optional[str] = None) -> Client:
+    """
+    Get Supabase client with anon key
+    If access_token is provided, sets the session for RLS policies
+    """
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         raise HTTPException(status_code=500, detail="Supabase configuration missing")
-    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+    
+    client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+    
+    # If access token is provided, set it for RLS policies
+    # The Supabase Python client needs the session to be set for RLS
+    if access_token:
+        try:
+            # Set the access token in the client's session
+            # This allows RLS policies to identify the authenticated user
+            client.auth.set_session(
+                access_token=access_token,
+                refresh_token=""  # Not needed for server-side operations
+            )
+        except Exception as e:
+            log_warning(f"Failed to set session with access token: {e}")
+            # Continue without session - might fail RLS checks
+    
+    return client
 
 def get_supabase_admin_client() -> Client:
     """Get Supabase admin client with service role key"""
@@ -248,11 +268,26 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         error_msg = str(e)
         raise HTTPException(status_code=401, detail=f"Token verification failed: {error_msg}")
 
-async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
+async def get_current_profile(
+    user: dict = Depends(get_current_user),
+    authorization: Optional[str] = Header(None)
+) -> dict:
     """
     Get user profile from database using authenticated user ID
+    Uses the JWT token for RLS policies
     """
-    supabase = get_supabase_client()
+    # Extract access token from Authorization header for RLS
+    access_token = None
+    if authorization:
+        try:
+            scheme, token = authorization.split()
+            if scheme.lower() == "bearer":
+                access_token = token
+        except ValueError:
+            pass
+    
+    # Create authenticated Supabase client with user's JWT token
+    supabase = get_supabase_client(access_token=access_token)
     user_id = user.get("sub") or user.get("user_id")
     
     if not user_id:
