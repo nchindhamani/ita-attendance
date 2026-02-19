@@ -253,7 +253,9 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
             logger.info(f"Profile query - response.__dict__: {response.__dict__}")
     
     if response is None:
-        raise HTTPException(status_code=500, detail="Supabase returned None for profile query")
+        error_detail = f"Supabase returned None for profile query. user_id: {user_id}, user_keys: {list(user.keys())}"
+        logger.error(error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
     
     if hasattr(response, 'error') and response.error:
         error = response.error
