@@ -420,6 +420,24 @@ class AttendanceResponse(BaseModel):
     success: Optional[str] = None
     error: Optional[str] = None
 
+class UpdateProfileRequest(BaseModel):
+    full_name: str
+    mobile: Optional[str] = None
+
+class UpdateProfileResponse(BaseModel):
+    success: Optional[bool] = None
+    error: Optional[str] = None
+
+class AddStudentRequest(BaseModel):
+    sectionId: str
+    schoolYear: str
+    studentIdentifier: str
+    fullName: str
+
+class AddStudentResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
 # Routes
 # Root endpoint (without /api prefix for health checks)
 @app.get("/")
