@@ -864,7 +864,9 @@ async def add_student(
         
         log_info(f"Inserting student: {insert_data}")
         
-        inserted_response = admin_supabase.table("students").insert(insert_data).select("id").execute()
+        # Insert student - Supabase returns the inserted row(s) by default
+        # Note: .select() cannot be chained after .insert() in Supabase Python client
+        inserted_response = admin_supabase.table("students").insert(insert_data).execute()
         
         if inserted_response is None:
             raise HTTPException(status_code=500, detail="Supabase returned None for student insert")
