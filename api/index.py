@@ -794,23 +794,23 @@ async def add_student(
             if existing_response.data is not None:
                 # Student already exists - return error
                 existing = existing_response.data
-            section_info = existing.get("sections")
-            if isinstance(section_info, list) and len(section_info) > 0:
-                section_info = section_info[0]
-            elif not section_info:
-                section_info = None
-            
-            if section_info:
-                section_display = f"Grade {section_info.get('grade')} {section_info.get('section')}"
-            else:
-                section_display = "another class"
-            
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "error": f"Student ID {student_identifier} already exists for {existing.get('full_name')} in {section_display}. Each student ID must be unique across all classes."
-                }
-            )
+                section_info = existing.get("sections")
+                if isinstance(section_info, list) and len(section_info) > 0:
+                    section_info = section_info[0]
+                elif not section_info:
+                    section_info = None
+                
+                if section_info:
+                    section_display = f"Grade {section_info.get('grade')} {section_info.get('section')}"
+                else:
+                    section_display = "another class"
+                
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": f"Student ID {student_identifier} already exists for {existing.get('full_name')} in {section_display}. Each student ID must be unique across all classes."
+                    }
+                )
         
         # Insert new student
         capitalized_name = capitalize_name(payload.fullName)
