@@ -1,7 +1,7 @@
 // @ts-nocheck
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ export function ProfileForm({ initialData, onSuccess }: ProfileFormProps) {
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supabase = createSupabaseBrowserClient();
+  const formRef = useRef<HTMLFormElement>(null);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -39,8 +40,15 @@ export function ProfileForm({ initialData, onSuccess }: ProfileFormProps) {
         throw new Error("Not authenticated. Please sign in again.");
       }
 
+      // Get form element - use ref as fallback if e.currentTarget is not available
+      const formElement = formRef.current || (e.currentTarget instanceof HTMLFormElement ? e.currentTarget : null);
+      
+      if (!formElement) {
+        throw new Error("Form element not found");
+      }
+
       // Get form data
-      const formData = new FormData(e.currentTarget);
+      const formData = new FormData(formElement);
       const full_name = String(formData.get("full_name") ?? "").trim();
       const mobile = String(formData.get("mobile") ?? "").trim();
 
@@ -106,7 +114,7 @@ export function ProfileForm({ initialData, onSuccess }: ProfileFormProps) {
   const isTeacher = initialData.role === "teacher";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
       {/* Full Name - Editable, Required */}
       <div className="space-y-2">
         <label htmlFor="full_name" className="text-sm font-semibold text-[#1e293b]">

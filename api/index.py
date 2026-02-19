@@ -13,6 +13,22 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, List
 from functools import lru_cache
+from pathlib import Path
+
+# Load environment variables from .env.local for local development
+# Vercel automatically provides environment variables, so this only runs locally
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent.parent / ".env.local"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+        print(f"Loaded environment variables from {env_path}", file=sys.stderr)
+except ImportError:
+    # python-dotenv not installed, skip (Vercel doesn't need it)
+    pass
+except Exception as e:
+    # Silently fail if .env.local doesn't exist or can't be loaded
+    pass
 
 # Configure logging for Vercel
 # Vercel captures stdout/stderr, so we configure logging to write to stderr
@@ -111,6 +127,11 @@ SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.environ.get("VITE_SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+
+# Log environment variable status (for debugging, don't log actual secrets)
+log_info(f"Environment loaded - SUPABASE_URL present: {bool(SUPABASE_URL)}")
+if SUPABASE_URL:
+    log_info(f"SUPABASE_URL starts with: {SUPABASE_URL[:30]}...")
 
 # Extract project ID from Supabase URL for JWKS endpoint
 def get_supabase_project_id() -> Optional[str]:
@@ -910,7 +931,7 @@ app.include_router(api_router)
 # Vercel deployment: Auto-detected by Vercel
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8002, reload=True)
 
 # Vercel FastAPI Auto-Detection
 # Vercel automatically detects FastAPI apps by looking for 'app' variable at module level
