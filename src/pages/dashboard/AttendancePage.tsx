@@ -210,7 +210,9 @@ export default function AttendancePage() {
   }
 
   const attendanceDate = formatPacificDate(new Date())
-  const locked = isAfterDailyCutoff(new Date()) || Boolean(holiday)
+  // COMMENTED OUT FOR TESTING - Daily cutoff check
+  // const locked = isAfterDailyCutoff(new Date()) || Boolean(holiday)
+  const locked = Boolean(holiday) // Only lock on holidays, not time-based
 
   return (
     <div className="space-y-6">

@@ -200,10 +200,11 @@ export function AttendanceEditor({
   }, [entries]);
 
   const handleSave = () => {
-    if (locked) {
-      toast.error("Attendance is locked after 3:00 PM PT.");
-      return;
-    }
+    // COMMENTED OUT FOR TESTING - Daily cutoff check
+    // if (locked) {
+    //   toast.error("Attendance is locked after 3:00 PM PT.");
+    //   return;
+    // }
     startTransition(() => {
       saveAttendance({
         sectionId,
@@ -298,11 +299,13 @@ export function AttendanceEditor({
           <p className="text-sm text-emerald-600">
             Holiday: {holidayName}. Attendance is not required today.
           </p>
-        ) : locked ? (
+        ) : null}
+        {/* COMMENTED OUT FOR TESTING - Daily cutoff lock message */}
+        {/* locked ? (
           <p className="text-sm text-destructive">
             Attendance is locked after 11:00 PM PT.
           </p>
-        ) : null}
+        ) : null */}
         </div>
         <Button onClick={handleSave} disabled={locked || isPending}>
           {isPending ? "Saving..." : "Save attendance"}
