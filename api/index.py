@@ -248,6 +248,17 @@ async def test():
     """Test endpoint to verify Python backend is accessible"""
     return {"status": "Python is alive", "message": "Backend connection successful"}
 
+@api_router.get("/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment variables (without sensitive values)"""
+    return {
+        "supabase_url_set": bool(SUPABASE_URL),
+        "supabase_anon_key_set": bool(SUPABASE_ANON_KEY),
+        "supabase_service_role_key_set": bool(SUPABASE_SERVICE_ROLE_KEY),
+        "supabase_jwt_secret_set": bool(SUPABASE_JWT_SECRET),
+        "supabase_url": SUPABASE_URL[:20] + "..." if SUPABASE_URL else None,
+    }
+
 @api_router.post("/attendance", response_model=AttendanceResponse)
 async def save_attendance(
     payload: SaveAttendanceRequest,
