@@ -72,6 +72,22 @@ export default function AttendancePage() {
     fetchTeacherSection()
   }, [profile, sectionId, navigate, authLoading])
 
+  // Function to fetch students (extracted for reuse)
+  const fetchStudents = async (sectionIdToFetch: string) => {
+    const { data: studentsData, error: studentsError } = await supabase
+      .from('students')
+      .select('id,full_name,student_identifier')
+      .eq('section_id', sectionIdToFetch)
+      .order('full_name', { ascending: true })
+
+    if (studentsError) {
+      console.error('Failed to load students:', studentsError)
+      return null
+    }
+
+    return studentsData ?? []
+  }
+
   // Fetch section data, students, and attendance
   useEffect(() => {
     if (authLoading || !profile || !sectionId) {
@@ -116,19 +132,14 @@ export default function AttendancePage() {
         }
 
         // Fetch students
-        const { data: studentsData, error: studentsError } = await supabase
-          .from('students')
-          .select('id,full_name,student_identifier')
-          .eq('section_id', sectionId)
-          .order('full_name', { ascending: true })
-
-        if (studentsError) {
+        const studentsData = await fetchStudents(sectionId)
+        if (studentsData === null) {
           setError('Failed to load students')
           setLoading(false)
           return
         }
 
-        setStudents(studentsData ?? [])
+        setStudents(studentsData)
 
         // Fetch existing attendance
         const studentIds = (studentsData ?? []).map(s => s.id)
@@ -232,6 +243,37 @@ export default function AttendancePage() {
         existing={existingAttendance}
         locked={locked}
         holidayName={holiday?.name ?? null}
+        onStudentAdded={async () => {
+          // Refresh student list after adding a new student
+          if (sectionId) {
+            const updatedStudents = await fetchStudents(sectionId)
+            if (updatedStudents !== null) {
+              setStudents(updatedStudents)
+              // Also refresh existing attendance to include the new student
+              const attendanceDate = formatPacificDate(new Date())
+              const studentIds = updatedStudents.map(s => s.id)
+              if (studentIds.length > 0) {
+                const { data: attendanceData } = await supabase
+                  .from('attendance')
+                  .select('student_id,status,comments')
+                  .eq('attendance_date', attendanceDate)
+                  .in('student_id', studentIds)
+
+                const existing = (attendanceData ?? []).reduce(
+                  (acc, entry) => {
+                    acc[entry.student_id] = {
+                      status: entry.status as AttendanceStatus,
+                      comments: entry.comments ?? '',
+                    }
+                    return acc
+                  },
+                  {} as Record<string, { status: AttendanceStatus; comments?: string | null }>
+                )
+                setExistingAttendance(existing)
+              }
+            }
+          }
+        }}
       />
     </div>
   )

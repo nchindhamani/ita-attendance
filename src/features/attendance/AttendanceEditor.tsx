@@ -210,6 +210,7 @@ export function AttendanceEditor({
   existing,
   locked,
   holidayName,
+  onStudentAdded,
 }: {
   sectionId: string;
   schoolYear: string;
@@ -218,6 +219,7 @@ export function AttendanceEditor({
   existing: ExistingAttendance;
   locked: boolean;
   holidayName?: string | null;
+  onStudentAdded?: () => void | Promise<void>;
 }) {
   const [isPending, startTransition] = useTransition();
   const [csvPending, startCsvTransition] = useTransition();
@@ -300,7 +302,7 @@ export function AttendanceEditor({
         schoolYear,
         studentIdentifier: studentIdentifier.trim(),
         fullName: studentName.trim(),
-      }).then((result) => {
+      }).then(async (result) => {
         if (result?.error) {
           toast.error(result.error);
         } else {
@@ -308,6 +310,10 @@ export function AttendanceEditor({
           setStudentIdentifier("");
           setStudentName("");
           setDialogOpen(false);
+          // Refresh student list
+          if (onStudentAdded) {
+            await onStudentAdded();
+          }
         }
       });
     });

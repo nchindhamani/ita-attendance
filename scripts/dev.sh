@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.." || exit
 
 echo "🚀 Starting ITA Attendance Portal in development mode"
 echo ""
-echo "📦 Frontend: http://localhost:3000"
-echo "🔧 Backend API: http://localhost:8000"
+echo "📦 Frontend: http://localhost:3002"
+echo "🔧 Backend API: http://localhost:8002"
 echo ""
 
 # Check if .env.local exists
@@ -47,8 +47,8 @@ FRONTEND_PID=$!
 
 echo ""
 echo "✅ Development servers started!"
-echo "   Frontend: http://localhost:3000"
-echo "   Backend: http://localhost:8000"
+echo "   Frontend: http://localhost:3002"
+echo "   Backend: http://localhost:8002"
 echo ""
 echo "Press Ctrl+C to stop both servers"
 
