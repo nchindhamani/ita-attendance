@@ -23,7 +23,7 @@ except ImportError as e:
     print(f"Import error: {IMPORT_ERROR}")
     print(f"Traceback: {traceback.format_exc()}")
 
-# Initialize FastAPI app only if imports succeeded
+# Initialize FastAPI app
 # Vercel detects FastAPI by looking for an 'app' variable at module level
 if IMPORTS_OK:
     app = FastAPI(title="ITA Attendance API")
@@ -37,11 +37,14 @@ if IMPORTS_OK:
         allow_headers=["*"],
     )
 else:
-    # Create a minimal app even if imports fail, so Vercel detects it
+    # Fallback: try to create app even if initial imports failed
+    # This ensures Vercel can detect the Python function
     try:
         from fastapi import FastAPI
         app = FastAPI(title="ITA Attendance API - Error Mode")
     except:
+        # If FastAPI can't be imported at all, this will fail
+        # but in production on Vercel, dependencies should be installed
         app = None
 
 # Environment variables
