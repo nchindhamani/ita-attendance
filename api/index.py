@@ -173,6 +173,11 @@ async def root():
     return {"status": "ok", "service": "ITA Attendance API"}
 
 # API routes with /api prefix (mounted on api_router)
+@api_router.get("/")
+async def api_root():
+    """API health check endpoint"""
+    return {"status": "ok", "service": "ITA Attendance API"}
+
 @api_router.get("/test")
 async def test():
     """Test endpoint to verify Python backend is accessible"""
