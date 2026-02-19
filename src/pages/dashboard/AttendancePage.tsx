@@ -35,11 +35,13 @@ type AttendanceEntry = {
 }
 
 export default function AttendancePage() {
+  console.log('AttendancePage component loaded')
   const { profile, loading: authLoading } = useRequireActiveProfile()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   
   const sectionId = searchParams.get('section')
+  console.log('Section ID:', sectionId, 'Profile:', profile)
   const [loading, setLoading] = useState(true)
   const [section, setSection] = useState<Section | null>(null)
   const [students, setStudents] = useState<Student[]>([])
