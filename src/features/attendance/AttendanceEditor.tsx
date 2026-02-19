@@ -76,16 +76,33 @@ const saveAttendance = async (params: {
       }),
     });
 
-    // Check if response is JSON before parsing
+    // Check if response has content before parsing
     const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-      const text = await response.text();
+    const responseText = await response.text();
+    
+    // Handle empty responses
+    if (!responseText || responseText.trim() === "") {
       return { 
-        error: `Server error: ${response.status} ${response.statusText}. ${text.substring(0, 100)}` 
+        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.` 
+      };
+    }
+    
+    // Check if response is JSON
+    if (!contentType || !contentType.includes("application/json")) {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}` 
       };
     }
 
-    const data = await response.json();
+    // Parse JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      return { 
+        error: `Failed to parse server response: ${responseText.substring(0, 200)}` 
+      };
+    }
 
     if (!response.ok) {
       return { error: data.error || data.detail || "Failed to save attendance" };

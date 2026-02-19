@@ -267,62 +267,55 @@ async def save_attendance(
         
         supabase = get_supabase_client()
         admin_supabase = get_supabase_admin_client()
-    except Exception as e:
-        print(f"Error initializing Supabase clients: {str(e)}")
-        print(f"Traceback: {traceback.format_exc()}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Failed to initialize database connection: {str(e)}"}
-        )
-    
-    # Check if date is a holiday
-    holiday_response = supabase.table("holidays").select("holiday_date").eq(
-        "school_year", payload.schoolYear
-    ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
-    
-    if holiday_response.data:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "This date is marked as a holiday."}
-        )
-    
-    # Get student data
-    student_ids = [entry.studentId for entry in payload.entries]
-    students_response = supabase.table("students").select(
-        "id,student_identifier,section_id"
-    ).in_("id", student_ids).execute()
-    
-    if not students_response.data:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "No students found"}
-        )
-    
-    # Create student map
-    student_map = {row["id"]: row for row in students_response.data}
-    
-    # Prepare upsert data
-    upserts = []
-    for entry in payload.entries:
-        student = student_map.get(entry.studentId)
-        if not student or not student.get("student_identifier"):
+        
+        # Check if date is a holiday
+        holiday_response = supabase.table("holidays").select("holiday_date").eq(
+            "school_year", payload.schoolYear
+        ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
+        
+        if holiday_response.data:
             return JSONResponse(
                 status_code=400,
-                content={"error": f"Student {entry.studentId} is missing student_identifier"}
+                content={"error": "This date is marked as a holiday."}
             )
         
-        upserts.append({
-            "student_id": entry.studentId,
-            "student_identifier": student["student_identifier"],
-            "section_id": student.get("section_id"),
-            "recorded_by": profile["id"],
-            "attendance_date": payload.attendanceDate,
-            "status": entry.status,
-            "comments": entry.comments,
-            "school_year": payload.schoolYear,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-    
+        # Get student data
+        student_ids = [entry.studentId for entry in payload.entries]
+        students_response = supabase.table("students").select(
+            "id,student_identifier,section_id"
+        ).in_("id", student_ids).execute()
+        
+        if not students_response.data:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No students found"}
+            )
+        
+        # Create student map
+        student_map = {row["id"]: row for row in students_response.data}
+        
+        # Prepare upsert data
+        upserts = []
+        for entry in payload.entries:
+            student = student_map.get(entry.studentId)
+            if not student or not student.get("student_identifier"):
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Student {entry.studentId} is missing student_identifier"}
+                )
+            
+            upserts.append({
+                "student_id": entry.studentId,
+                "student_identifier": student["student_identifier"],
+                "section_id": student.get("section_id"),
+                "recorded_by": profile["id"],
+                "attendance_date": payload.attendanceDate,
+                "status": entry.status,
+                "comments": entry.comments,
+                "school_year": payload.schoolYear,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        
         # Upsert attendance records
         attendance_response = admin_supabase.table("attendance").upsert(
             upserts,
