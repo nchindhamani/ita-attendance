@@ -15,11 +15,32 @@ from typing import Optional, List
 from functools import lru_cache
 
 # Configure logging for Vercel
+# Vercel captures stdout/stderr, so we configure logging to write to stderr
+# Also use print() as fallback since Vercel reliably captures print statements
+import sys
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr,  # Write to stderr for Vercel
+    force=True  # Override any existing configuration
 )
 logger = logging.getLogger(__name__)
+
+# Also create a helper that logs to both logger and print for maximum visibility
+def log_error(msg: str, *args, **kwargs):
+    """Log error to both logger and print for Vercel visibility"""
+    logger.error(msg, *args, **kwargs)
+    print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+
+def log_info(msg: str, *args, **kwargs):
+    """Log info to both logger and print for Vercel visibility"""
+    logger.info(msg, *args, **kwargs)
+    print(f"INFO: {msg}", file=sys.stderr, flush=True)
+
+def log_warning(msg: str, *args, **kwargs):
+    """Log warning to both logger and print for Vercel visibility"""
+    logger.warning(msg, *args, **kwargs)
+    print(f"WARNING: {msg}", file=sys.stderr, flush=True)
 
 # Import dependencies - Vercel will install from requirements.txt
 from fastapi import FastAPI, HTTPException, Depends, Header, APIRouter, Request
@@ -60,8 +81,8 @@ async def global_exception_handler(request: Request, exc: Exception):
     traceback_str = traceback.format_exc()
     
     # Log the full traceback for debugging (in production, log to a service)
-    logger.error(f"Unhandled exception ({error_type}): {error_detail}")
-    logger.error(f"Traceback: {traceback_str}")
+    log_error(f"Unhandled exception ({error_type}): {error_detail}")
+    log_error(f"Traceback: {traceback_str}")
     
     # Always return detailed error in preview/production for debugging
     return JSONResponse(
@@ -238,23 +259,23 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
         raise HTTPException(status_code=401, detail="User ID not found in token")
     
     # Log the user_id being used in the query
-    logger.info(f"Profile query - user_id: {user_id}")
-    logger.info(f"Profile query - user object keys: {list(user.keys())}")
-    logger.info(f"Profile query - user object: {json.dumps(user, default=str)}")
+    log_info(f"Profile query - user_id: {user_id}")
+    log_info(f"Profile query - user object keys: {list(user.keys())}")
+    log_info(f"Profile query - user object: {json.dumps(user, default=str)}")
     
     response = supabase.table("profiles").select("*").eq("id", user_id).maybe_single().execute()
     
     # Log the full response object before None check
-    logger.info(f"Profile query - response type: {type(response)}")
-    logger.info(f"Profile query - response: {response}")
+    log_info(f"Profile query - response type: {type(response)}")
+    log_info(f"Profile query - response: {response}")
     if response is not None:
-        logger.info(f"Profile query - response attributes: {dir(response)}")
+        log_info(f"Profile query - response attributes: {dir(response)}")
         if hasattr(response, '__dict__'):
-            logger.info(f"Profile query - response.__dict__: {response.__dict__}")
+            log_info(f"Profile query - response.__dict__: {response.__dict__}")
     
     if response is None:
         error_detail = f"Supabase returned None for profile query. user_id: {user_id}, user_keys: {list(user.keys())}"
-        logger.error(error_detail)
+        log_error(error_detail)
         raise HTTPException(status_code=500, detail=error_detail)
     
     if hasattr(response, 'error') and response.error:
@@ -263,11 +284,11 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
         error_code = getattr(error, 'code', None) if hasattr(error, 'code') else None
         error_hint = getattr(error, 'hint', None) if hasattr(error, 'hint') else None
         
-        logger.error(f"Supabase error in profile query:")
-        logger.error(f"  - Error message: {error_message}")
-        logger.error(f"  - Error code: {error_code}")
-        logger.error(f"  - Error hint: {error_hint}")
-        logger.error(f"  - Full error object: {error}")
+        log_error(f"Supabase error in profile query:")
+        log_error(f"  - Error message: {error_message}")
+        log_error(f"  - Error code: {error_code}")
+        log_error(f"  - Error hint: {error_hint}")
+        log_error(f"  - Full error object: {error}")
         
         raise HTTPException(
             status_code=500, 
@@ -275,15 +296,15 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
         )
     
     if not hasattr(response, 'data') or not response.data:
-        logger.warning(f"Profile query - response.data is missing or None")
-        logger.warning(f"Profile query - hasattr(response, 'data'): {hasattr(response, 'data')}")
+        log_warning(f"Profile query - response.data is missing or None")
+        log_warning(f"Profile query - hasattr(response, 'data'): {hasattr(response, 'data')}")
         if hasattr(response, 'data'):
-            logger.warning(f"Profile query - response.data value: {response.data}")
+            log_warning(f"Profile query - response.data value: {response.data}")
         
         error_detail = f"Profile not found for user_id: {user_id}. Response type: {type(response)}, has_data_attr: {hasattr(response, 'data')}"
         if hasattr(response, 'data'):
             error_detail += f", data_value: {response.data}"
-        logger.error(error_detail)
+        log_error(error_detail)
         raise HTTPException(status_code=404, detail=error_detail)
     
     profile = response.data
@@ -414,7 +435,7 @@ async def save_attendance(
             raise HTTPException(status_code=500, detail="Supabase returned None for holiday query")
         
         if hasattr(holiday_response, 'error') and holiday_response.error:
-            logger.error(f"Supabase error in holiday query: {holiday_response.error}")
+            log_error(f"Supabase error in holiday query: {holiday_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {holiday_response.error}")
         
         if hasattr(holiday_response, 'data') and holiday_response.data:
@@ -435,7 +456,7 @@ async def save_attendance(
             raise HTTPException(status_code=500, detail="Supabase returned None for students query")
         
         if hasattr(students_response, 'error') and students_response.error:
-            logger.error(f"Supabase error in students query: {students_response.error}")
+            log_error(f"Supabase error in students query: {students_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {students_response.error}")
         
         if not hasattr(students_response, 'data'):
@@ -485,7 +506,7 @@ async def save_attendance(
             raise HTTPException(status_code=500, detail="Supabase returned None for attendance upsert")
         
         if hasattr(attendance_response, 'error') and attendance_response.error:
-            logger.error(f"Supabase error in attendance upsert: {attendance_response.error}")
+            log_error(f"Supabase error in attendance upsert: {attendance_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {attendance_response.error}")
         
         if not hasattr(attendance_response, 'data'):
@@ -502,8 +523,8 @@ async def save_attendance(
         logger.info("Attendance saved successfully")
         return {"success": "Attendance saved."}
     except Exception as e:
-        logger.error(f"Error saving attendance: {str(e)}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        log_error(f"Error saving attendance: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to save attendance: {str(e)}"}
