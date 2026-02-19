@@ -11,6 +11,8 @@ import hashlib
 import time
 from datetime import datetime, timezone
 from typing import Optional, List
+from functools import lru_cache
+import httpx
 
 # Import dependencies - Vercel will install from requirements.txt
 from fastapi import FastAPI, HTTPException, Depends, Header, APIRouter, Request
@@ -81,6 +83,69 @@ SUPABASE_ANON_KEY = os.environ.get("VITE_SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
 
+# Extract project ID from Supabase URL for JWKS endpoint
+def get_supabase_project_id() -> Optional[str]:
+    """Extract project ID from Supabase URL"""
+    if not SUPABASE_URL:
+        return None
+    try:
+        # URL format: https://<project_id>.supabase.co
+        parts = SUPABASE_URL.replace("https://", "").replace("http://", "").split(".")
+        if len(parts) > 0:
+            return parts[0]
+    except Exception:
+        pass
+    return None
+
+@lru_cache(maxsize=1)
+def get_jwks() -> dict:
+    """Fetch JWKS from Supabase's well-known endpoint"""
+    project_id = get_supabase_project_id()
+    if not project_id:
+        raise HTTPException(status_code=500, detail="Cannot determine Supabase project ID")
+    
+    jwks_url = f"https://{project_id}.supabase.co/auth/v1/.well-known/jwks.json"
+    
+    try:
+        response = httpx.get(jwks_url, timeout=5.0)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Error fetching JWKS: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch JWKS: {str(e)}")
+
+def get_public_key_from_jwks(kid: str) -> str:
+    """Get public key from JWKS by key ID"""
+    jwks = get_jwks()
+    
+    for key in jwks.get("keys", []):
+        if key.get("kid") == kid:
+            # Convert JWK to PEM format for ES256
+            from cryptography.hazmat.primitives.asymmetric import ec
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.backends import default_backend
+            
+            # Extract x and y coordinates from JWK
+            x = base64.urlsafe_b64decode(key["x"] + "==")
+            y = base64.urlsafe_b64decode(key["y"] + "==")
+            
+            # Reconstruct the public key
+            public_numbers = ec.EllipticCurvePublicNumbers(
+                int.from_bytes(x, "big"),
+                int.from_bytes(y, "big"),
+                ec.SECP256R1()
+            )
+            public_key = public_numbers.public_key(default_backend())
+            
+            # Convert to PEM format
+            pem = public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
+            return pem.decode("utf-8")
+    
+    raise HTTPException(status_code=401, detail=f"Key ID {kid} not found in JWKS")
+
 # Initialize Supabase clients
 def get_supabase_client() -> Client:
     """Get Supabase client with anon key"""
@@ -115,89 +180,66 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         raise HTTPException(status_code=500, detail="JWT secret not configured")
     
     try:
-        # Verify and decode JWT using PyJWT
-        # Supabase access tokens use HS256 with a plain string secret (not PEM)
-        # However, some token headers may claim ES256/RS256
-        
-        # First, decode the header to check what algorithm it claims
+        # Decode token header to check algorithm and key ID
         try:
             header_part = token.split('.')[0]
-            # Add padding if needed for base64 decoding
             header_part += '=' * (4 - len(header_part) % 4)
             header_bytes = base64.urlsafe_b64decode(header_part)
             header_dict = json.loads(header_bytes)
             token_algorithm = header_dict.get("alg", "HS256")
-            print(f"Token algorithm from header: {token_algorithm}")
+            key_id = header_dict.get("kid")  # Key ID for JWKS lookup
+            print(f"Token algorithm: {token_algorithm}, Key ID: {key_id}")
         except Exception as e:
             print(f"Error reading token header: {e}")
             token_algorithm = "HS256"
+            key_id = None
         
-        # Supabase tokens are ALWAYS signed with HS256, even if header claims otherwise
-        # If header claims ES256/RS256, we can't add it to allowed algorithms because
-        # PyJWT will try to verify with it (requiring PEM keys)
-        # Solution: Decode without verification, then manually verify signature with HS256
-        
-        if token_algorithm != "HS256":
-            print(f"Token header claims {token_algorithm}, but Supabase uses HS256. Decoding without verification, then manually verifying with HS256.")
+        # Determine verification key based on algorithm
+        if token_algorithm == "ES256":
+            # ES256: Fetch public key from Supabase JWKS
+            if not key_id:
+                raise HTTPException(status_code=401, detail="Token missing key ID (kid) for ES256 verification")
             
-            # Decode without verification to get the payload
-            unverified_payload = jwt.decode(token, options={"verify_signature": False})
-            
-            # Manually verify the signature using HS256
-            # Split token into parts
-            parts = token.split('.')
-            if len(parts) != 3:
-                raise HTTPException(status_code=401, detail="Invalid token format")
-            
-            header_part, payload_part, signature_part = parts
-            
-            # Recreate the message that was signed
-            message = f"{header_part}.{payload_part}"
-            
-            # Decode the signature
             try:
-                signature_bytes = base64.urlsafe_b64decode(signature_part + '=' * (4 - len(signature_part) % 4))
-            except Exception:
-                raise HTTPException(status_code=401, detail="Invalid token signature format")
-            
-            # Verify signature using HMAC-SHA256 (HS256)
-            # Create expected signature
-            expected_signature = hmac.new(
-                SUPABASE_JWT_SECRET.encode('utf-8'),
-                message.encode('utf-8'),
-                hashlib.sha256
-            ).digest()
-            
-            # Compare signatures (constant-time comparison)
-            if not hmac.compare_digest(signature_bytes, expected_signature):
-                raise HTTPException(status_code=401, detail="Invalid token signature")
-            
-            # Check expiration manually
-            if 'exp' in unverified_payload:
-                if unverified_payload['exp'] < time.time():
-                    raise HTTPException(status_code=401, detail="Token has expired. Please sign in again.")
-            
-            return unverified_payload
+                public_key = get_public_key_from_jwks(key_id)
+                verification_key = public_key
+                print("Using public key from JWKS for ES256 verification")
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=401, detail=f"Failed to get public key from JWKS: {str(e)}")
+        elif token_algorithm == "HS256":
+            # HS256: Use JWT secret
+            if not SUPABASE_JWT_SECRET:
+                raise HTTPException(status_code=500, detail="JWT secret not configured")
+            verification_key = SUPABASE_JWT_SECRET
+            print("Using JWT secret for HS256 verification")
         else:
-            # Header claims HS256, use normal PyJWT verification
-            payload = jwt.decode(
-                token,
-                SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                options={
-                    "verify_signature": True,
-                    "verify_exp": True,
-                    "verify_aud": False
-                }
+            raise HTTPException(
+                status_code=401,
+                detail=f"Unsupported token algorithm: {token_algorithm}. Only HS256 and ES256 are supported."
             )
-            return payload
+        
+        # Decode and verify token with appropriate key and algorithms
+        payload = jwt.decode(
+            token,
+            verification_key,
+            algorithms=["HS256", "ES256"],  # Allow both algorithms
+            options={
+                "verify_signature": True,
+                "verify_exp": True,
+                "verify_aud": False  # Supabase tokens don't have standard aud claim
+            }
+        )
+        return payload
+        
     except HTTPException:
         raise
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired. Please sign in again.")
     except jwt.InvalidSignatureError:
         raise HTTPException(
-            status_code=401, 
+            status_code=401,
             detail="Invalid token signature. Please sign out and sign in again."
         )
     except jwt.DecodeError as e:
