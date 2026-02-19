@@ -772,24 +772,28 @@ async def add_student(
         school_year = section.get("school_year") or payload.schoolYear
         
         # Check if student_identifier already exists globally
+        log_info(f"Checking for existing student with identifier: {student_identifier}")
         existing_response = admin_supabase.table("students").select(
             "id,full_name,section_id,sections(grade,section)"
         ).eq("student_identifier", student_identifier).maybe_single().execute()
         
-        if existing_response is None:
-            raise HTTPException(status_code=500, detail="Supabase returned None for existing student check")
+        log_info(f"Existing student check - response type: {type(existing_response)}")
+        log_info(f"Existing student check - response: {existing_response}")
         
-        if hasattr(existing_response, 'error') and existing_response.error:
+        # Handle response - check for errors first
+        if existing_response is None:
+            log_warning("Supabase returned None for existing student check, assuming no existing student.")
+            # Treat None as "no student found" - proceed with insert
+        elif hasattr(existing_response, 'error') and existing_response.error:
             error = existing_response.error
             error_message = getattr(error, 'message', str(error)) if error else str(error)
             log_error(f"Supabase error in existing student check: {error_message}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
-        
-        # Check if student already exists
-        # If existing_response.data is None, it means no student found (good - we can proceed)
-        # If existing_response.data exists, it means student already exists (bad - return error)
-        if hasattr(existing_response, 'data') and existing_response.data is not None:
-            existing = existing_response.data
+        elif hasattr(existing_response, 'data'):
+            log_info(f"Existing student check - has data: {existing_response.data is not None}")
+            if existing_response.data is not None:
+                # Student already exists - return error
+                existing = existing_response.data
             section_info = existing.get("sections")
             if isinstance(section_info, list) and len(section_info) > 0:
                 section_info = section_info[0]
