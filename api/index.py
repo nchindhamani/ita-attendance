@@ -151,9 +151,6 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid authorization header format")
     
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=500, detail="JWT secret not configured")
-    
     try:
         # Decode token header to check algorithm and key ID
         try:
