@@ -112,11 +112,8 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     try:
         # Verify and decode JWT
         # Supabase access tokens use HS256 with a plain string secret (not PEM)
-        # However, some token headers may claim different algorithms (ES256, RS256, etc.)
+        # However, some token headers may incorrectly claim ES256/RS256
         # We need to verify with HS256 regardless of what the header claims
-        
-        # Strategy: Decode without verification first to check the algorithm,
-        # then verify with HS256 (Supabase standard) regardless of header claim
         
         try:
             unverified_header = jwt.get_unverified_header(token)
@@ -126,53 +123,63 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
             print(f"Error reading token header: {e}")
             token_algorithm = "HS256"
         
-        # If header claims non-HS256, we'll still try HS256 verification
-        # because Supabase always signs with HS256 regardless of header claim
-        if token_algorithm != "HS256":
-            print(f"Warning: Token header claims {token_algorithm}, but verifying with HS256 (Supabase standard)")
+        # Supabase tokens are ALWAYS signed with HS256, even if header claims otherwise
+        # python-jose is strict: if header says ES256 and we only allow HS256, it rejects
+        # Solution: Try HS256 first, if that fails due to algorithm mismatch,
+        # we'll need to work around python-jose's strictness
         
-        # Verify with HS256 - Supabase always uses HS256 for signing
-        # We use options to skip algorithm check and force HS256 verification
         try:
-            # Decode without verification to get payload structure
-            unverified_payload = jwt.decode(token, options={"verify_signature": False})
-            
-            # Now verify signature with HS256
+            # First attempt: Verify with HS256 only (Supabase standard)
             payload = jwt.decode(
                 token,
                 SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],  # Force HS256 verification
+                algorithms=["HS256"],
                 options={
-                    "verify_aud": False,  # Supabase tokens don't have standard aud claim
-                    "verify_signature": True,
-                    "verify_exp": True  # Still verify expiration
+                    "verify_aud": False,
+                    "verify_signature": True
                 }
             )
             return payload
         except JWTError as e:
             error_msg = str(e)
-            if "algorithm" in error_msg.lower() and "not allowed" in error_msg.lower():
-                # Token header algorithm mismatch - try to decode ignoring algorithm check
-                # This happens when header says ES256/RS256 but token is signed with HS256
-                print(f"Algorithm mismatch error, attempting HS256 verification anyway...")
+            print(f"HS256 verification failed: {error_msg}")
+            
+            # If error is about algorithm not allowed, the header claims non-HS256
+            if "algorithm" in error_msg.lower() and ("not allowed" in error_msg.lower() or "specified alg" in error_msg.lower()):
+                # Token header claims non-HS256 algorithm
+                # We need to allow it in the list to pass python-jose's check,
+                # but signature will only verify if it's actually HS256
+                # However, if we add ES256/RS256, python-jose will try to use PEM format
+                # So we catch that error and provide a helpful message
                 try:
-                    # Use a workaround: decode with both algorithms to pass the check,
-                    # but the signature will only verify if it's actually HS256
+                    # Try with both algorithms - signature will only verify if it's HS256
+                    allowed = ["HS256"]
+                    if token_algorithm not in allowed:
+                        allowed.append(token_algorithm)
+                    
                     payload = jwt.decode(
                         token,
                         SUPABASE_JWT_SECRET,
-                        algorithms=["HS256", token_algorithm] if token_algorithm != "HS256" else ["HS256"],
+                        algorithms=allowed,
                         options={
                             "verify_aud": False,
                             "verify_signature": True
                         }
                     )
                     return payload
-                except Exception as inner_e:
-                    raise HTTPException(
-                        status_code=401,
-                        detail=f"Token signature verification failed. The token may be invalid or expired. Error: {str(inner_e)}"
-                    )
+                except Exception as pem_error:
+                    error_str = str(pem_error)
+                    if "PEM" in error_str or "MalformedFraming" in error_str:
+                        # python-jose tried to interpret our plain string secret as PEM
+                        # This means the token header claims ES256/RS256 but token is signed with HS256
+                        # The signature verification should have failed, but we hit PEM error first
+                        raise HTTPException(
+                            status_code=401,
+                            detail=f"Token algorithm mismatch. Header claims {token_algorithm} but token is signed with HS256. Please sign out and sign in again to get a fresh token."
+                        )
+                    raise HTTPException(status_code=401, detail=f"Token verification failed: {error_str}")
+            
+            # Other JWT errors (expired, invalid signature, etc.)
             raise HTTPException(status_code=401, detail=f"Invalid token: {error_msg}")
     except HTTPException:
         raise
