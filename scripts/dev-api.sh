@@ -4,7 +4,7 @@
 
 cd "$(dirname "$0")/.." || exit
 
-echo "🚀 Starting FastAPI backend on http://localhost:8000"
+echo "🚀 Starting FastAPI backend on http://localhost:8002"
 echo "📝 Make sure you have:"
 echo "   - Python 3.12+ installed"
 echo "   - uv installed (https://github.com/astral-sh/uv)"
@@ -34,7 +34,22 @@ fi
 
 # Load environment variables from .env.local if it exists
 if [ -f .env.local ]; then
-    export $(cat .env.local | grep -v '^#' | xargs)
+    echo "📝 Loading environment variables from .env.local..."
+    # Use a safer method to load env vars (handles spaces and special chars)
+    set -a
+    source .env.local
+    set +a
+    echo "✅ Environment variables loaded"
+    
+    # Verify key variables are set
+    if [ -z "$VITE_SUPABASE_URL" ]; then
+        echo "⚠️  Warning: VITE_SUPABASE_URL not found in .env.local"
+    else
+        echo "✅ VITE_SUPABASE_URL is set"
+    fi
+else
+    echo "⚠️  Warning: .env.local not found"
+    echo "   Create it with your Supabase credentials"
 fi
 
 # Run the FastAPI server
@@ -42,5 +57,6 @@ echo "🌐 Starting FastAPI server..."
 cd api || exit
 
 # Use uv to run uvicorn with the installed dependencies
-uv run uvicorn index:app --host 0.0.0.0 --port 8000 --reload
+# Environment variables are already exported above
+uv run uvicorn index:app --host 0.0.0.0 --port 8002 --reload
 
