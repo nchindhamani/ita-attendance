@@ -8,44 +8,27 @@ import traceback
 from datetime import datetime, timezone
 from typing import Optional, List
 
-# Try to import dependencies and handle errors gracefully
-try:
-    from fastapi import FastAPI, HTTPException, Depends, Header
-    from fastapi.responses import JSONResponse
-    from fastapi.middleware.cors import CORSMiddleware
-    from jose import JWTError, jwt
-    from supabase import create_client, Client
-    import pytz
-    IMPORTS_OK = True
-except ImportError as e:
-    IMPORTS_OK = False
-    IMPORT_ERROR = str(e)
-    print(f"Import error: {IMPORT_ERROR}")
-    print(f"Traceback: {traceback.format_exc()}")
+# Import dependencies - Vercel will install from requirements.txt
+from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from jose import JWTError, jwt
+from supabase import create_client, Client
+import pytz
 
 # Initialize FastAPI app
 # Vercel detects FastAPI by looking for an 'app' variable at module level
-if IMPORTS_OK:
-    app = FastAPI(title="ITA Attendance API")
-    
-    # CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # Configure appropriately for production
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    # Fallback: try to create app even if initial imports failed
-    # This ensures Vercel can detect the Python function
-    try:
-        from fastapi import FastAPI
-        app = FastAPI(title="ITA Attendance API - Error Mode")
-    except:
-        # If FastAPI can't be imported at all, this will fail
-        # but in production on Vercel, dependencies should be installed
-        app = None
+# This MUST be defined unconditionally for Vercel's static analysis
+app = FastAPI(title="ITA Attendance API")
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Environment variables
 SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "")
