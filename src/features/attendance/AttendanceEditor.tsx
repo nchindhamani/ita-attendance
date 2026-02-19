@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Papa from "papaparse";
 import { toast } from "sonner";
 import { Check, X, Clock, ArrowRight, Pencil } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -42,9 +43,50 @@ type AttendanceEntryInput = {
 };
 
 // Temporary stub functions - to be replaced with API calls
+const supabase = createSupabaseBrowserClient();
 const addStudent = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
 const addStudentsFromCsv = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
-const saveAttendance = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
+
+// Real implementation: Call Python API
+const saveAttendance = async (params: {
+  sectionId: string;
+  attendanceDate: string;
+  schoolYear: string;
+  entries: AttendanceEntryInput[];
+}): Promise<{ success?: string; error?: string }> => {
+  try {
+    // Get JWT token from Supabase session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { error: "Not authenticated. Please sign in again." };
+    }
+
+    // Call Python API
+    const response = await fetch("/api/attendance", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sectionId: params.sectionId,
+        attendanceDate: params.attendanceDate,
+        schoolYear: params.schoolYear,
+        entries: params.entries,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { error: data.error || data.detail || "Failed to save attendance" };
+    }
+
+    return { success: data.success || "Attendance saved." };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "An unexpected error occurred" };
+  }
+};
 import { AttendanceStatistics } from "./AttendanceStatistics";
 
 type Student = {
