@@ -48,17 +48,14 @@ async def global_exception_handler(request: Request, exc: Exception):
     print(f"Unhandled exception ({error_type}): {error_detail}")
     print(f"Traceback: {traceback_str}")
     
-    # Return more detailed error in development, generic in production
-    # Check if we're in a development environment (Vercel preview deployments)
-    is_dev = os.environ.get("VERCEL_ENV") != "production"
-    
+    # Always return detailed error in preview/production for debugging
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
             "detail": error_detail,
             "type": error_type,
-            "traceback": traceback_str if is_dev else None
+            "message": f"{error_type}: {error_detail}"
         }
     )
 
