@@ -906,6 +906,12 @@ async def add_student(
 # Mount the API router to the app
 app.include_router(api_router)
 
+# Local development: Run with uvicorn directly
+# Vercel deployment: Auto-detected by Vercel
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+
 # Vercel FastAPI Auto-Detection
 # Vercel automatically detects FastAPI apps by looking for 'app' variable at module level
 # No custom handler needed - Vercel handles FastAPI routing automatically
