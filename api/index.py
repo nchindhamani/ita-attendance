@@ -456,7 +456,21 @@ async def save_attendance(
         #     )
         
         logger.info("Initializing Supabase clients...")
-        supabase = get_supabase_client()
+        
+        # Extract access token from Authorization header for RLS
+        access_token = None
+        if request and hasattr(request, 'headers'):
+            auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+            if auth_header:
+                try:
+                    scheme, token = auth_header.split()
+                    if scheme.lower() == "bearer":
+                        access_token = token
+                except ValueError:
+                    pass
+        
+        # Use authenticated client for RLS policies
+        supabase = get_supabase_client(access_token=access_token)
         admin_supabase = get_supabase_admin_client()
         logger.info("Supabase clients initialized successfully")
         
