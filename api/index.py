@@ -15,22 +15,7 @@ from typing import Optional, List
 from functools import lru_cache
 from pathlib import Path
 
-# Load environment variables from .env.local for local development
-# Vercel automatically provides environment variables, so this only runs locally
-try:
-    from dotenv import load_dotenv
-    env_path = Path(__file__).parent.parent / ".env.local"
-    if env_path.exists():
-        load_dotenv(dotenv_path=env_path)
-        print(f"Loaded environment variables from {env_path}", file=sys.stderr)
-except ImportError:
-    # python-dotenv not installed, skip (Vercel doesn't need it)
-    pass
-except Exception as e:
-    # Silently fail if .env.local doesn't exist or can't be loaded
-    pass
-
-# Configure logging for Vercel
+# Configure logging for Vercel (must be before dotenv so we can log)
 # Vercel captures stdout/stderr, so we configure logging to write to stderr
 # Also use print() as fallback since Vercel reliably captures print statements
 import sys
@@ -57,6 +42,50 @@ def log_warning(msg: str, *args, **kwargs):
     """Log warning to both logger and print for Vercel visibility"""
     logger.warning(msg, *args, **kwargs)
     print(f"WARNING: {msg}", file=sys.stderr, flush=True)
+
+# Load environment variables from .env.local for local development
+# Vercel automatically provides environment variables, so this only runs locally
+try:
+    from dotenv import load_dotenv
+    # Use absolute paths to avoid issues with working directory
+    script_file = Path(__file__).resolve()  # api/index.py (absolute)
+    script_dir = script_file.parent  # api/ (absolute)
+    project_root = script_dir.parent  # project root (absolute)
+    
+    # Try multiple possible locations for .env.local
+    possible_paths = [
+        project_root / ".env.local",  # Project root (most likely)
+        script_dir / ".env.local",  # api/ directory
+        Path.cwd() / ".env.local",  # Current working directory
+        Path.cwd().parent / ".env.local",  # Parent of current directory
+    ]
+    
+    log_info(f"🔍 Looking for .env.local:")
+    log_info(f"   Script: {script_file}")
+    log_info(f"   Project root: {project_root}")
+    log_info(f"   CWD: {Path.cwd()}")
+    
+    loaded = False
+    for env_path in possible_paths:
+        env_path_abs = env_path.resolve()
+        if env_path_abs.exists():
+            result = load_dotenv(dotenv_path=env_path_abs, override=True)
+            log_info(f"✅ Loaded .env.local from {env_path_abs} (result: {result})")
+            loaded = True
+            break
+        else:
+            log_info(f"   ❌ Not found: {env_path_abs}")
+    
+    if not loaded:
+        log_warning("⚠️  .env.local not found in any expected location")
+except ImportError:
+    # python-dotenv not installed, skip (Vercel doesn't need it)
+    log_warning("⚠️  python-dotenv not installed, skipping .env.local loading")
+except Exception as e:
+    # Log but don't fail if .env.local doesn't exist or can't be loaded
+    log_warning(f"⚠️  Could not load .env.local: {str(e)}")
+    import traceback
+    log_warning(f"   Traceback: {traceback.format_exc()}")
 
 # Import dependencies - Vercel will install from requirements.txt
 from fastapi import FastAPI, HTTPException, Depends, Header, APIRouter, Request
