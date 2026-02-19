@@ -266,6 +266,8 @@ async def save_attendance(
     Migrated from TypeScript saveAttendance Server Action
     """
     try:
+        print(f"save_attendance called with payload: sectionId={payload.sectionId}, date={payload.attendanceDate}, entries={len(payload.entries)}")
+        
         # Check daily cutoff
         if is_after_daily_cutoff(datetime.now(timezone.utc)):
             return JSONResponse(
@@ -273,10 +275,13 @@ async def save_attendance(
                 content={"error": "Attendance is locked after 3:00 PM PT."}
             )
         
+        print("Initializing Supabase clients...")
         supabase = get_supabase_client()
         admin_supabase = get_supabase_admin_client()
+        print("Supabase clients initialized successfully")
         
         # Check if date is a holiday
+        print("Checking for holidays...")
         holiday_response = supabase.table("holidays").select("holiday_date").eq(
             "school_year", payload.schoolYear
         ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
@@ -288,10 +293,13 @@ async def save_attendance(
             )
         
         # Get student data
+        print("Fetching student data...")
         student_ids = [entry.studentId for entry in payload.entries]
+        print(f"Student IDs to fetch: {student_ids}")
         students_response = supabase.table("students").select(
             "id,student_identifier,section_id"
         ).in_("id", student_ids).execute()
+        print(f"Found {len(students_response.data or [])} students")
         
         if not students_response.data:
             return JSONResponse(
@@ -325,10 +333,12 @@ async def save_attendance(
             })
         
         # Upsert attendance records
+        print(f"Upserting {len(upserts)} attendance records...")
         attendance_response = admin_supabase.table("attendance").upsert(
             upserts,
             on_conflict="student_id,attendance_date"
         ).execute()
+        print(f"Upsert response: {attendance_response.data is not None}")
         
         if attendance_response.data is None:
             return JSONResponse(
@@ -336,6 +346,7 @@ async def save_attendance(
                 content={"error": "Failed to save attendance"}
             )
         
+        print("Attendance saved successfully")
         return {"success": "Attendance saved."}
     except Exception as e:
         print(f"Error saving attendance: {str(e)}")
