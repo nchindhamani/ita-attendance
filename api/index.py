@@ -52,32 +52,23 @@ try:
     script_dir = script_file.parent  # api/ (absolute)
     project_root = script_dir.parent  # project root (absolute)
     
-    # Try multiple possible locations for .env.local
-    possible_paths = [
-        project_root / ".env.local",  # Project root (most likely)
-        script_dir / ".env.local",  # api/ directory
-        Path.cwd() / ".env.local",  # Current working directory
-        Path.cwd().parent / ".env.local",  # Parent of current directory
-    ]
+    # Primary location: project root
+    env_file = project_root / ".env.local"
     
-    log_info(f"🔍 Looking for .env.local:")
-    log_info(f"   Script: {script_file}")
-    log_info(f"   Project root: {project_root}")
-    log_info(f"   CWD: {Path.cwd()}")
-    
-    loaded = False
-    for env_path in possible_paths:
-        env_path_abs = env_path.resolve()
-        if env_path_abs.exists():
-            result = load_dotenv(dotenv_path=env_path_abs, override=True)
-            log_info(f"✅ Loaded .env.local from {env_path_abs} (result: {result})")
-            loaded = True
-            break
+    if env_file.exists():
+        result = load_dotenv(dotenv_path=env_file, override=True)
+        log_info(f"✅ Loaded .env.local from {env_file} (result: {result})")
+        # Verify it worked
+        test_url = os.environ.get("VITE_SUPABASE_URL", "")
+        if test_url:
+            log_info(f"✅ Verified: VITE_SUPABASE_URL is set (starts with: {test_url[:30]}...)")
         else:
-            log_info(f"   ❌ Not found: {env_path_abs}")
-    
-    if not loaded:
-        log_warning("⚠️  .env.local not found in any expected location")
+            log_warning("⚠️  .env.local loaded but VITE_SUPABASE_URL not found in environment")
+    else:
+        log_warning(f"⚠️  .env.local not found at {env_file}")
+        log_warning(f"   Script file: {script_file}")
+        log_warning(f"   Project root: {project_root}")
+        log_warning(f"   CWD: {Path.cwd()}")
 except ImportError:
     # python-dotenv not installed, skip (Vercel doesn't need it)
     log_warning("⚠️  python-dotenv not installed, skipping .env.local loading")
