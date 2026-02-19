@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 
 # Import dependencies - Vercel will install from requirements.txt
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
@@ -20,6 +20,10 @@ import pytz
 # Vercel detects FastAPI by looking for an 'app' variable at module level
 # This MUST be defined unconditionally for Vercel's static analysis
 app = FastAPI(title="ITA Attendance API")
+
+# Create API router with /api prefix
+# Vercel rewrites preserve the original path, so routes need /api prefix
+api_router = APIRouter(prefix="/api")
 
 # CORS middleware
 app.add_middleware(
@@ -162,17 +166,19 @@ class AttendanceResponse(BaseModel):
     error: Optional[str] = None
 
 # Routes
+# Root endpoint (without /api prefix for health checks)
 @app.get("/")
 async def root():
     """Health check endpoint"""
     return {"status": "ok", "service": "ITA Attendance API"}
 
-@app.get("/test")
+# API routes with /api prefix (mounted on api_router)
+@api_router.get("/test")
 async def test():
     """Test endpoint to verify Python backend is accessible"""
     return {"status": "Python is alive", "message": "Backend connection successful"}
 
-@app.post("/attendance", response_model=AttendanceResponse)
+@api_router.post("/attendance", response_model=AttendanceResponse)
 async def save_attendance(
     payload: SaveAttendanceRequest,
     profile: dict = Depends(get_current_profile)
@@ -252,6 +258,9 @@ async def save_attendance(
         )
     
     return {"success": "Attendance saved."}
+
+# Mount the API router to the app
+app.include_router(api_router)
 
 # Vercel FastAPI Auto-Detection
 # Vercel automatically detects FastAPI apps by looking for 'app' variable at module level
