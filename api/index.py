@@ -111,38 +111,17 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     
     try:
         # Verify and decode JWT
-        # Supabase access tokens use HS256 with the JWT secret
-        # First, check the token header to see what algorithm it uses
-        try:
-            unverified_header = jwt.get_unverified_header(token)
-            token_algorithm = unverified_header.get("alg", "HS256")
-        except Exception:
-            token_algorithm = "HS256"  # Default to HS256 if we can't read header
-        
-        # Supabase tokens should use HS256, but we'll try to decode with the algorithm from the token
-        # If that fails, fall back to HS256
-        try:
-            payload = jwt.decode(
-                token,
-                SUPABASE_JWT_SECRET,
-                algorithms=[token_algorithm],
-                options={
-                    "verify_aud": False,  # Supabase tokens don't have standard aud claim
-                    "verify_signature": True
-                }
-            )
-        except JWTError:
-            # If the token's algorithm doesn't work, try HS256 (Supabase's standard)
-            payload = jwt.decode(
-                token,
-                SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                options={
-                    "verify_aud": False,
-                    "verify_signature": True
-                }
-            )
-        
+        # Supabase access tokens ALWAYS use HS256 with a plain string secret (not PEM)
+        # We should only use HS256 algorithm, never try other algorithms
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],  # Supabase tokens always use HS256
+            options={
+                "verify_aud": False,  # Supabase tokens don't have standard aud claim
+                "verify_signature": True
+            }
+        )
         return payload
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
