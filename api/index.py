@@ -238,7 +238,7 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
         print(f"Supabase error in profile query: {response.error}")
         raise HTTPException(status_code=500, detail=f"Supabase error: {response.error}")
     
-    if not response.data:
+    if not hasattr(response, 'data') or not response.data:
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = response.data
@@ -372,7 +372,7 @@ async def save_attendance(
             print(f"Supabase error in holiday query: {holiday_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {holiday_response.error}")
         
-        if holiday_response.data:
+        if hasattr(holiday_response, 'data') and holiday_response.data:
             return JSONResponse(
                 status_code=400,
                 content={"error": "This date is marked as a holiday."}
@@ -392,6 +392,9 @@ async def save_attendance(
         if hasattr(students_response, 'error') and students_response.error:
             print(f"Supabase error in students query: {students_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {students_response.error}")
+        
+        if not hasattr(students_response, 'data'):
+            raise HTTPException(status_code=500, detail="Supabase response missing data attribute")
         
         print(f"Found {len(students_response.data or [])} students")
         
@@ -439,6 +442,9 @@ async def save_attendance(
         if hasattr(attendance_response, 'error') and attendance_response.error:
             print(f"Supabase error in attendance upsert: {attendance_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {attendance_response.error}")
+        
+        if not hasattr(attendance_response, 'data'):
+            raise HTTPException(status_code=500, detail="Supabase response missing data attribute")
         
         print(f"Upsert response: {attendance_response.data is not None}")
         
