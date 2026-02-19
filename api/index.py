@@ -484,17 +484,43 @@ async def save_attendance(
         logger.info("Supabase clients initialized successfully")
         
         # Check if date is a holiday
-        logger.info("Checking for holidays...")
+        # Use admin client for holidays since they're public data and RLS might be blocking
+        log_info("Checking for holidays...")
+        log_info(f"Holiday query - school_year: {payload.schoolYear}, date: {payload.attendanceDate}")
+        
+        # Try with authenticated client first
         holiday_response = supabase.table("holidays").select("holiday_date").eq(
             "school_year", payload.schoolYear
         ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
         
+        # If None or error, fallback to admin client (holidays are public data)
+        if holiday_response is None or (hasattr(holiday_response, 'error') and holiday_response.error):
+            log_warning(f"Holiday query failed with authenticated client, trying admin client...")
+            holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
+                "school_year", payload.schoolYear
+            ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
+        
         if holiday_response is None:
-            raise HTTPException(status_code=500, detail="Supabase returned None for holiday query")
+            error_detail = f"Supabase returned None for holiday query even with admin client"
+            log_error(error_detail)
+            raise HTTPException(status_code=500, detail=error_detail)
         
         if hasattr(holiday_response, 'error') and holiday_response.error:
-            log_error(f"Supabase error in holiday query: {holiday_response.error}")
-            raise HTTPException(status_code=500, detail=f"Supabase error: {holiday_response.error}")
+            error = holiday_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            error_code = getattr(error, 'code', None) if hasattr(error, 'code') else None
+            error_hint = getattr(error, 'hint', None) if hasattr(error, 'hint') else None
+            
+            log_error(f"Supabase error in holiday query:")
+            log_error(f"  - Error message: {error_message}")
+            log_error(f"  - Error code: {error_code}")
+            log_error(f"  - Error hint: {error_hint}")
+            log_error(f"  - Full error object: {error}")
+            
+            raise HTTPException(
+                status_code=500,
+                detail=f"Supabase error: {error_message} (code: {error_code}, hint: {error_hint})"
+            )
         
         if hasattr(holiday_response, 'data') and holiday_response.data:
             return JSONResponse(
