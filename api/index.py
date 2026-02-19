@@ -439,7 +439,8 @@ async def debug_env():
 @api_router.post("/attendance", response_model=AttendanceResponse)
 async def save_attendance(
     payload: SaveAttendanceRequest,
-    profile: dict = Depends(get_current_profile)
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
 ):
     """
     Save attendance records
@@ -459,15 +460,13 @@ async def save_attendance(
         
         # Extract access token from Authorization header for RLS
         access_token = None
-        if request and hasattr(request, 'headers'):
-            auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
-            if auth_header:
-                try:
-                    scheme, token = auth_header.split()
-                    if scheme.lower() == "bearer":
-                        access_token = token
-                except ValueError:
-                    pass
+        if authorization:
+            try:
+                scheme, token = authorization.split()
+                if scheme.lower() == "bearer":
+                    access_token = token
+            except ValueError:
+                pass
         
         # Use authenticated client for RLS policies
         supabase = get_supabase_client(access_token=access_token)
