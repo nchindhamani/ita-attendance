@@ -664,6 +664,237 @@ async def save_attendance(
             content={"error": f"Failed to save attendance: {str(e)}"}
         )
 
+@api_router.put("/profile", response_model=UpdateProfileResponse)
+async def update_profile(
+    payload: UpdateProfileRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Update user profile
+    Migrated from TypeScript updateProfile Server Action
+    """
+    try:
+        log_info(f"update_profile called for user_id: {profile.get('id')}")
+        
+        # Validation: full name is required
+        if not payload.full_name or not payload.full_name.strip():
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Full name is required and cannot be empty."}
+            )
+        
+        # Capitalize the name
+        capitalized_name = capitalize_name(payload.full_name.strip())
+        
+        # Build update object - only update editable fields
+        update_data = {
+            "full_name": capitalized_name,
+            "mobile": payload.mobile.strip() if payload.mobile else None
+        }
+        
+        log_info(f"Updating profile with data: {update_data}")
+        
+        # Use admin client to update profile
+        admin_supabase = get_supabase_admin_client()
+        response = admin_supabase.table("profiles").update(update_data).eq("id", profile["id"]).execute()
+        
+        if response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for profile update")
+        
+        if hasattr(response, 'error') and response.error:
+            error = response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error in profile update: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to update profile: {error_message}")
+        
+        log_info("Profile updated successfully")
+        return {"success": True}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error updating profile: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to update profile: {str(e)}"}
+        )
+
+@api_router.post("/students", response_model=AddStudentResponse)
+async def add_student(
+    payload: AddStudentRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Add a single student to a section
+    Migrated from TypeScript addStudent Server Action
+    """
+    try:
+        log_info(f"add_student called - sectionId: {payload.sectionId}, studentIdentifier: {payload.studentIdentifier}, fullName: {payload.fullName}")
+        
+        if not payload.sectionId:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Missing section for this class."}
+            )
+        
+        # Validate student identifier is a number
+        try:
+            student_identifier = int(payload.studentIdentifier)
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Student ID must be a number."}
+            )
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Get section to verify it exists and get school_year
+        section_response = admin_supabase.table("sections").select("school_year").eq("id", payload.sectionId).maybe_single().execute()
+        
+        if section_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for section query")
+        
+        if hasattr(section_response, 'error') and section_response.error:
+            error = section_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+        
+        if not hasattr(section_response, 'data') or not section_response.data:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Section not found."}
+            )
+        
+        section = section_response.data
+        school_year = section.get("school_year") or payload.schoolYear
+        
+        # Check if student_identifier already exists globally
+        existing_response = admin_supabase.table("students").select(
+            "id,full_name,section_id,sections(grade,section)"
+        ).eq("student_identifier", student_identifier).maybe_single().execute()
+        
+        if existing_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for existing student check")
+        
+        if hasattr(existing_response, 'error') and existing_response.error:
+            error = existing_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+        
+        if hasattr(existing_response, 'data') and existing_response.data:
+            existing = existing_response.data
+            section_info = existing.get("sections")
+            if isinstance(section_info, list) and len(section_info) > 0:
+                section_info = section_info[0]
+            elif not section_info:
+                section_info = None
+            
+            if section_info:
+                section_display = f"Grade {section_info.get('grade')} {section_info.get('section')}"
+            else:
+                section_display = "another class"
+            
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": f"Student ID {student_identifier} already exists for {existing.get('full_name')} in {section_display}. Each student ID must be unique across all classes."
+                }
+            )
+        
+        # Insert new student
+        capitalized_name = capitalize_name(payload.fullName)
+        insert_data = {
+            "student_identifier": student_identifier,
+            "full_name": capitalized_name,
+            "section_id": payload.sectionId,
+            "school_year": school_year
+        }
+        
+        log_info(f"Inserting student: {insert_data}")
+        
+        inserted_response = admin_supabase.table("students").insert(insert_data).select("id").execute()
+        
+        if inserted_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for student insert")
+        
+        if hasattr(inserted_response, 'error') and inserted_response.error:
+            error = inserted_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            raise HTTPException(status_code=500, detail=f"Failed to add student: {error_message}")
+        
+        if not hasattr(inserted_response, 'data') or not inserted_response.data:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Unable to add student."}
+            )
+        
+        inserted = inserted_response.data
+        if isinstance(inserted, list) and len(inserted) > 0:
+            student_id = inserted[0].get("id")
+        elif isinstance(inserted, dict):
+            student_id = inserted.get("id")
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Unable to add student."}
+            )
+        
+        # Backfill attendance for existing dates in this section
+        # Get all unique attendance dates for this section
+        attendance_dates_response = admin_supabase.table("attendance").select("attendance_date").eq("section_id", payload.sectionId).execute()
+        
+        if attendance_dates_response and hasattr(attendance_dates_response, 'data') and attendance_dates_response.data:
+            unique_dates = list(set([row.get("attendance_date") for row in attendance_dates_response.data if row.get("attendance_date")]))
+            
+            if unique_dates:
+                # Get holidays for this school year
+                holidays_response = admin_supabase.table("holidays").select("holiday_date").eq("school_year", school_year).in_("holiday_date", unique_dates).execute()
+                
+                holiday_dates = set()
+                if holidays_response and hasattr(holidays_response, 'data') and holidays_response.data:
+                    holiday_dates = set([row.get("holiday_date") for row in holidays_response.data if row.get("holiday_date")])
+                
+                # Create backfill attendance records (absent for all non-holiday dates)
+                backfill = [
+                    {
+                        "student_id": student_id,
+                        "student_identifier": student_identifier,
+                        "section_id": payload.sectionId,
+                        "recorded_by": profile["id"],
+                        "attendance_date": date,
+                        "status": "absent",
+                        "comments": None,
+                        "school_year": school_year,
+                    }
+                    for date in unique_dates if date not in holiday_dates
+                ]
+                
+                if backfill:
+                    log_info(f"Backfilling attendance for {len(backfill)} dates")
+                    backfill_response = admin_supabase.table("attendance").upsert(
+                        backfill,
+                        on_conflict="student_id,attendance_date"
+                    ).execute()
+                    
+                    if backfill_response and hasattr(backfill_response, 'error') and backfill_response.error:
+                        log_warning(f"Warning: Failed to backfill attendance: {backfill_response.error}")
+        
+        log_info("Student added successfully")
+        return {"success": "Student added."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error adding student: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to add student: {str(e)}"}
+        )
+
 # Mount the API router to the app
 app.include_router(api_router)
 
