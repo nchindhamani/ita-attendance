@@ -167,13 +167,23 @@ def get_supabase_client(access_token: Optional[str] = None) -> Client:
         try:
             # Set the access token in the client's session
             # This allows RLS policies to identify the authenticated user
+            # The Supabase Python client uses this to set the Authorization header
             client.auth.set_session(
                 access_token=access_token,
-                refresh_token=""  # Not needed for server-side operations
+                refresh_token=access_token  # Use access_token as refresh_token for server-side
             )
+            log_info(f"Successfully set session with access token for RLS")
         except Exception as e:
-            log_warning(f"Failed to set session with access token: {e}")
-            # Continue without session - might fail RLS checks
+            log_error(f"Failed to set session with access token: {e}")
+            # Try alternative method: set headers directly
+            try:
+                # Alternative: Set the Authorization header directly on the postgrest client
+                if hasattr(client, 'postgrest') and hasattr(client.postgrest, 'session'):
+                    client.postgrest.auth(access_token)
+                    log_info(f"Set auth token via postgrest client")
+            except Exception as e2:
+                log_error(f"Failed to set auth via postgrest: {e2}")
+                # Continue without session - might fail RLS checks
     
     return client
 
