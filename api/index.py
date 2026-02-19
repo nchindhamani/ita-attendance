@@ -41,15 +41,24 @@ app.add_middleware(
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch all unhandled exceptions and return JSON error response"""
     error_detail = str(exc)
+    error_type = type(exc).__name__
+    traceback_str = traceback.format_exc()
+    
     # Log the full traceback for debugging (in production, log to a service)
-    print(f"Unhandled exception: {error_detail}")
-    print(f"Traceback: {traceback.format_exc()}")
+    print(f"Unhandled exception ({error_type}): {error_detail}")
+    print(f"Traceback: {traceback_str}")
+    
+    # Return more detailed error in development, generic in production
+    # Check if we're in a development environment (Vercel preview deployments)
+    is_dev = os.environ.get("VERCEL_ENV") != "production"
     
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
-            "detail": error_detail
+            "detail": error_detail,
+            "type": error_type,
+            "traceback": traceback_str if is_dev else None
         }
     )
 
@@ -248,15 +257,23 @@ async def save_attendance(
     Save attendance records
     Migrated from TypeScript saveAttendance Server Action
     """
-    # Check daily cutoff
-    if is_after_daily_cutoff(datetime.now(timezone.utc)):
+    try:
+        # Check daily cutoff
+        if is_after_daily_cutoff(datetime.now(timezone.utc)):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Attendance is locked after 3:00 PM PT."}
+            )
+        
+        supabase = get_supabase_client()
+        admin_supabase = get_supabase_admin_client()
+    except Exception as e:
+        print(f"Error initializing Supabase clients: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return JSONResponse(
-            status_code=400,
-            content={"error": "Attendance is locked after 3:00 PM PT."}
+            status_code=500,
+            content={"error": f"Failed to initialize database connection: {str(e)}"}
         )
-    
-    supabase = get_supabase_client()
-    admin_supabase = get_supabase_admin_client()
     
     # Check if date is a holiday
     holiday_response = supabase.table("holidays").select("holiday_date").eq(
@@ -306,19 +323,26 @@ async def save_attendance(
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
     
-    # Upsert attendance records
-    attendance_response = admin_supabase.table("attendance").upsert(
-        upserts,
-        on_conflict="student_id,attendance_date"
-    ).execute()
-    
-    if attendance_response.data is None:
+        # Upsert attendance records
+        attendance_response = admin_supabase.table("attendance").upsert(
+            upserts,
+            on_conflict="student_id,attendance_date"
+        ).execute()
+        
+        if attendance_response.data is None:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Failed to save attendance"}
+            )
+        
+        return {"success": "Attendance saved."}
+    except Exception as e:
+        print(f"Error saving attendance: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
-            content={"error": "Failed to save attendance"}
+            content={"error": f"Failed to save attendance: {str(e)}"}
         )
-    
-    return {"success": "Attendance saved."}
 
 # Mount the API router to the app
 app.include_router(api_router)
