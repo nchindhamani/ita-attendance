@@ -279,7 +279,12 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
         logger.warning(f"Profile query - hasattr(response, 'data'): {hasattr(response, 'data')}")
         if hasattr(response, 'data'):
             logger.warning(f"Profile query - response.data value: {response.data}")
-        raise HTTPException(status_code=404, detail="Profile not found")
+        
+        error_detail = f"Profile not found for user_id: {user_id}. Response type: {type(response)}, has_data_attr: {hasattr(response, 'data')}"
+        if hasattr(response, 'data'):
+            error_detail += f", data_value: {response.data}"
+        logger.error(error_detail)
+        raise HTTPException(status_code=404, detail=error_detail)
     
     profile = response.data
     
