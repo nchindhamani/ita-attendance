@@ -9,9 +9,17 @@ import base64
 import hmac
 import hashlib
 import time
+import logging
 from datetime import datetime, timezone
 from typing import Optional, List
 from functools import lru_cache
+
+# Configure logging for Vercel
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Import dependencies - Vercel will install from requirements.txt
 from fastapi import FastAPI, HTTPException, Depends, Header, APIRouter, Request
@@ -52,8 +60,8 @@ async def global_exception_handler(request: Request, exc: Exception):
     traceback_str = traceback.format_exc()
     
     # Log the full traceback for debugging (in production, log to a service)
-    print(f"Unhandled exception ({error_type}): {error_detail}")
-    print(f"Traceback: {traceback_str}")
+    logger.error(f"Unhandled exception ({error_type}): {error_detail}")
+    logger.error(f"Traceback: {traceback_str}")
     
     # Always return detailed error in preview/production for debugging
     return JSONResponse(
@@ -160,9 +168,9 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
             header_dict = json.loads(header_bytes)
             token_algorithm = header_dict.get("alg", "HS256")
             key_id = header_dict.get("kid")  # Key ID for JWKS lookup
-            print(f"Token algorithm: {token_algorithm}, Key ID: {key_id}")
+            logger.info(f"Token algorithm: {token_algorithm}, Key ID: {key_id}")
         except Exception as e:
-            print(f"Error reading token header: {e}")
+            logger.warning(f"Error reading token header: {e}")
             token_algorithm = "HS256"
             key_id = None
         
@@ -174,7 +182,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
             
             try:
                 verification_key = get_signing_key_from_jwks(key_id)
-                print("Using public key from JWKS for ES256 verification")
+                logger.info("Using public key from JWKS for ES256 verification")
             except HTTPException:
                 raise
             except Exception as e:
@@ -184,7 +192,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
             if not SUPABASE_JWT_SECRET:
                 raise HTTPException(status_code=500, detail="JWT secret not configured")
             verification_key = SUPABASE_JWT_SECRET
-            print("Using JWT secret for HS256 verification")
+            logger.info("Using JWT secret for HS256 verification")
         else:
             raise HTTPException(
                 status_code=401,
@@ -229,20 +237,20 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID not found in token")
     
-    # Print the user_id being used in the query
-    print(f"Profile query - user_id: {user_id}")
-    print(f"Profile query - user object keys: {list(user.keys())}")
-    print(f"Profile query - user object: {user}")
+    # Log the user_id being used in the query
+    logger.info(f"Profile query - user_id: {user_id}")
+    logger.info(f"Profile query - user object keys: {list(user.keys())}")
+    logger.info(f"Profile query - user object: {json.dumps(user, default=str)}")
     
     response = supabase.table("profiles").select("*").eq("id", user_id).maybe_single().execute()
     
     # Log the full response object before None check
-    print(f"Profile query - response type: {type(response)}")
-    print(f"Profile query - response: {response}")
+    logger.info(f"Profile query - response type: {type(response)}")
+    logger.info(f"Profile query - response: {response}")
     if response is not None:
-        print(f"Profile query - response attributes: {dir(response)}")
+        logger.info(f"Profile query - response attributes: {dir(response)}")
         if hasattr(response, '__dict__'):
-            print(f"Profile query - response.__dict__: {response.__dict__}")
+            logger.info(f"Profile query - response.__dict__: {response.__dict__}")
     
     if response is None:
         raise HTTPException(status_code=500, detail="Supabase returned None for profile query")
@@ -253,11 +261,11 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
         error_code = getattr(error, 'code', None) if hasattr(error, 'code') else None
         error_hint = getattr(error, 'hint', None) if hasattr(error, 'hint') else None
         
-        print(f"Supabase error in profile query:")
-        print(f"  - Error message: {error_message}")
-        print(f"  - Error code: {error_code}")
-        print(f"  - Error hint: {error_hint}")
-        print(f"  - Full error object: {error}")
+        logger.error(f"Supabase error in profile query:")
+        logger.error(f"  - Error message: {error_message}")
+        logger.error(f"  - Error code: {error_code}")
+        logger.error(f"  - Error hint: {error_hint}")
+        logger.error(f"  - Full error object: {error}")
         
         raise HTTPException(
             status_code=500, 
@@ -265,10 +273,10 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
         )
     
     if not hasattr(response, 'data') or not response.data:
-        print(f"Profile query - response.data is missing or None")
-        print(f"Profile query - hasattr(response, 'data'): {hasattr(response, 'data')}")
+        logger.warning(f"Profile query - response.data is missing or None")
+        logger.warning(f"Profile query - hasattr(response, 'data'): {hasattr(response, 'data')}")
         if hasattr(response, 'data'):
-            print(f"Profile query - response.data value: {response.data}")
+            logger.warning(f"Profile query - response.data value: {response.data}")
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = response.data
@@ -375,7 +383,7 @@ async def save_attendance(
     Migrated from TypeScript saveAttendance Server Action
     """
     try:
-        print(f"save_attendance called with payload: sectionId={payload.sectionId}, date={payload.attendanceDate}, entries={len(payload.entries)}")
+        logger.info(f"save_attendance called with payload: sectionId={payload.sectionId}, date={payload.attendanceDate}, entries={len(payload.entries)}")
         
         # Check daily cutoff
         if is_after_daily_cutoff(datetime.now(timezone.utc)):
@@ -384,13 +392,13 @@ async def save_attendance(
                 content={"error": "Attendance is locked after 3:00 PM PT."}
             )
         
-        print("Initializing Supabase clients...")
+        logger.info("Initializing Supabase clients...")
         supabase = get_supabase_client()
         admin_supabase = get_supabase_admin_client()
-        print("Supabase clients initialized successfully")
+        logger.info("Supabase clients initialized successfully")
         
         # Check if date is a holiday
-        print("Checking for holidays...")
+        logger.info("Checking for holidays...")
         holiday_response = supabase.table("holidays").select("holiday_date").eq(
             "school_year", payload.schoolYear
         ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
@@ -399,7 +407,7 @@ async def save_attendance(
             raise HTTPException(status_code=500, detail="Supabase returned None for holiday query")
         
         if hasattr(holiday_response, 'error') and holiday_response.error:
-            print(f"Supabase error in holiday query: {holiday_response.error}")
+            logger.error(f"Supabase error in holiday query: {holiday_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {holiday_response.error}")
         
         if hasattr(holiday_response, 'data') and holiday_response.data:
@@ -409,9 +417,9 @@ async def save_attendance(
             )
         
         # Get student data
-        print("Fetching student data...")
+        logger.info("Fetching student data...")
         student_ids = [entry.studentId for entry in payload.entries]
-        print(f"Student IDs to fetch: {student_ids}")
+        logger.info(f"Student IDs to fetch: {student_ids}")
         students_response = supabase.table("students").select(
             "id,student_identifier,section_id"
         ).in_("id", student_ids).execute()
@@ -420,13 +428,13 @@ async def save_attendance(
             raise HTTPException(status_code=500, detail="Supabase returned None for students query")
         
         if hasattr(students_response, 'error') and students_response.error:
-            print(f"Supabase error in students query: {students_response.error}")
+            logger.error(f"Supabase error in students query: {students_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {students_response.error}")
         
         if not hasattr(students_response, 'data'):
             raise HTTPException(status_code=500, detail="Supabase response missing data attribute")
         
-        print(f"Found {len(students_response.data or [])} students")
+        logger.info(f"Found {len(students_response.data or [])} students")
         
         if not students_response.data:
             return JSONResponse(
@@ -460,7 +468,7 @@ async def save_attendance(
             })
         
         # Upsert attendance records
-        print(f"Upserting {len(upserts)} attendance records...")
+        logger.info(f"Upserting {len(upserts)} attendance records...")
         attendance_response = admin_supabase.table("attendance").upsert(
             upserts,
             on_conflict="student_id,attendance_date"
@@ -470,13 +478,13 @@ async def save_attendance(
             raise HTTPException(status_code=500, detail="Supabase returned None for attendance upsert")
         
         if hasattr(attendance_response, 'error') and attendance_response.error:
-            print(f"Supabase error in attendance upsert: {attendance_response.error}")
+            logger.error(f"Supabase error in attendance upsert: {attendance_response.error}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {attendance_response.error}")
         
         if not hasattr(attendance_response, 'data'):
             raise HTTPException(status_code=500, detail="Supabase response missing data attribute")
         
-        print(f"Upsert response: {attendance_response.data is not None}")
+        logger.info(f"Upsert response: {attendance_response.data is not None}")
         
         if attendance_response.data is None:
             return JSONResponse(
@@ -484,11 +492,11 @@ async def save_attendance(
                 content={"error": "Failed to save attendance"}
             )
         
-        print("Attendance saved successfully")
+        logger.info("Attendance saved successfully")
         return {"success": "Attendance saved."}
     except Exception as e:
-        print(f"Error saving attendance: {str(e)}")
-        print(f"Traceback: {traceback.format_exc()}")
+        logger.error(f"Error saving attendance: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to save attendance: {str(e)}"}
