@@ -111,20 +111,43 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     
     try:
         # Verify and decode JWT
-        # Supabase access tokens ALWAYS use HS256 with a plain string secret (not PEM)
-        # We should only use HS256 algorithm, never try other algorithms
-        payload = jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],  # Supabase tokens always use HS256
-            options={
-                "verify_aud": False,  # Supabase tokens don't have standard aud claim
-                "verify_signature": True
-            }
-        )
-        return payload
-    except JWTError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+        # First, check what algorithm the token claims to use
+        try:
+            unverified_header = jwt.get_unverified_header(token)
+            token_algorithm = unverified_header.get("alg", "HS256")
+            print(f"Token algorithm from header: {token_algorithm}")
+        except Exception as e:
+            print(f"Error reading token header: {e}")
+            token_algorithm = "HS256"  # Default to HS256
+        
+        # Supabase access tokens use HS256 with a plain string secret (not PEM)
+        # However, some tokens might claim different algorithms in the header
+        # We'll try HS256 first (Supabase standard), and if that fails, try the token's claimed algorithm
+        # But only for HS256 - we don't support RS256/ES256 as those require PEM keys
+        try:
+            payload = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],  # Supabase tokens always use HS256 for signing
+                options={
+                    "verify_aud": False,  # Supabase tokens don't have standard aud claim
+                    "verify_signature": True
+                }
+            )
+            return payload
+        except JWTError as e:
+            # If HS256 fails and token claims a different algorithm, that's an error
+            # Supabase tokens should always be HS256
+            if token_algorithm != "HS256":
+                raise HTTPException(
+                    status_code=401, 
+                    detail=f"Token uses unsupported algorithm: {token_algorithm}. Supabase tokens must use HS256."
+                )
+            raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
 async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
     """
