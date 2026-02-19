@@ -2,6 +2,11 @@
 
 This document details all the changes made to successfully migrate from Next.js Server Actions to Python FastAPI endpoints on Vercel, and how we resolved Vercel's Python function detection issues.
 
+> **Quick Links:**
+> - [Troubleshooting Guide](./VERCEL_PYTHON_TROUBLESHOOTING.md) - Quick reference for common issues
+> - [Detection Guide](./VERCEL_PYTHON_DETECTION.md) - How Vercel detects Python functions
+> - [API Testing Guide](./API_TESTING_GUIDE.md) - How to test the Python API
+
 ## Table of Contents
 1. [Initial Setup](#initial-setup)
 2. [Vercel Configuration Issues](#vercel-configuration-issues)
