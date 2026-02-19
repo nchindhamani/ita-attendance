@@ -5,6 +5,10 @@ Hosted as Vercel Serverless Function
 import os
 import json
 import traceback
+import base64
+import hmac
+import hashlib
+import time
 from datetime import datetime, timezone
 from typing import Optional, List
 
@@ -116,8 +120,6 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         # However, some token headers may claim ES256/RS256
         
         # First, decode the header to check what algorithm it claims
-        import base64
-        import json
         try:
             header_part = token.split('.')[0]
             # Add padding if needed for base64 decoding
@@ -159,9 +161,6 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
                 raise HTTPException(status_code=401, detail="Invalid token signature format")
             
             # Verify signature using HMAC-SHA256 (HS256)
-            import hmac
-            import hashlib
-            
             # Create expected signature
             expected_signature = hmac.new(
                 SUPABASE_JWT_SECRET.encode('utf-8'),
@@ -174,7 +173,6 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
                 raise HTTPException(status_code=401, detail="Invalid token signature")
             
             # Check expiration manually
-            import time
             if 'exp' in unverified_payload:
                 if unverified_payload['exp'] < time.time():
                     raise HTTPException(status_code=401, detail="Token has expired. Please sign in again.")
