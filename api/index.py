@@ -229,16 +229,46 @@ async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID not found in token")
     
+    # Print the user_id being used in the query
+    print(f"Profile query - user_id: {user_id}")
+    print(f"Profile query - user object keys: {list(user.keys())}")
+    print(f"Profile query - user object: {user}")
+    
     response = supabase.table("profiles").select("*").eq("id", user_id).maybe_single().execute()
+    
+    # Log the full response object before None check
+    print(f"Profile query - response type: {type(response)}")
+    print(f"Profile query - response: {response}")
+    if response is not None:
+        print(f"Profile query - response attributes: {dir(response)}")
+        if hasattr(response, '__dict__'):
+            print(f"Profile query - response.__dict__: {response.__dict__}")
     
     if response is None:
         raise HTTPException(status_code=500, detail="Supabase returned None for profile query")
     
     if hasattr(response, 'error') and response.error:
-        print(f"Supabase error in profile query: {response.error}")
-        raise HTTPException(status_code=500, detail=f"Supabase error: {response.error}")
+        error = response.error
+        error_message = getattr(error, 'message', str(error)) if error else str(error)
+        error_code = getattr(error, 'code', None) if hasattr(error, 'code') else None
+        error_hint = getattr(error, 'hint', None) if hasattr(error, 'hint') else None
+        
+        print(f"Supabase error in profile query:")
+        print(f"  - Error message: {error_message}")
+        print(f"  - Error code: {error_code}")
+        print(f"  - Error hint: {error_hint}")
+        print(f"  - Full error object: {error}")
+        
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Supabase error: {error_message} (code: {error_code}, hint: {error_hint})"
+        )
     
     if not hasattr(response, 'data') or not response.data:
+        print(f"Profile query - response.data is missing or None")
+        print(f"Profile query - hasattr(response, 'data'): {hasattr(response, 'data')}")
+        if hasattr(response, 'data'):
+            print(f"Profile query - response.data value: {response.data}")
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = response.data
