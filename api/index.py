@@ -121,41 +121,29 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
             token_algorithm = "HS256"  # Default to HS256
         
         # Supabase access tokens ALWAYS use HS256 with a plain string secret (not PEM)
-        # Even if the token header claims a different algorithm, Supabase signs with HS256
-        # python-jose is strict: if header says RS256 but we only allow HS256, it rejects before verification
-        # Solution: If header claims non-HS256, we need to include it in allowed algorithms list
-        # BUT we'll still verify with HS256 secret (Supabase standard)
-        
-        allowed_algorithms = ["HS256"]
+        # If the token header claims a different algorithm (RS256, ES256, etc.), we must reject it
+        # because python-jose will try to interpret our plain string secret as a PEM file
         if token_algorithm != "HS256":
-            # Token claims a different algorithm, but Supabase always uses HS256
-            # We'll allow the claimed algorithm in the list to pass python-jose's check
-            # but it will fail signature verification if it's not actually HS256
-            allowed_algorithms.append(token_algorithm)
-            print(f"Warning: Token claims {token_algorithm}, but Supabase uses HS256. Allowing both for verification.")
-        
-        try:
-            payload = jwt.decode(
-                token,
-                SUPABASE_JWT_SECRET,
-                algorithms=allowed_algorithms,  # Allow both to pass python-jose check
-                options={
-                    "verify_aud": False,  # Supabase tokens don't have standard aud claim
-                    "verify_signature": True
-                }
+            raise HTTPException(
+                status_code=401,
+                detail=f"Token uses unsupported algorithm: {token_algorithm}. Supabase tokens must use HS256. Please refresh your session."
             )
-            return payload
-        except JWTError as e:
-            error_msg = str(e)
-            # If signature verification fails, it means the token wasn't signed with HS256
-            if "signature" in error_msg.lower() or "verification" in error_msg.lower():
-                raise HTTPException(
-                    status_code=401, 
-                    detail=f"Token signature verification failed. Supabase tokens must use HS256 algorithm."
-                )
-            raise HTTPException(status_code=401, detail=f"Invalid token: {error_msg}")
+        
+        # Only allow HS256 - Supabase standard
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],  # Only HS256 - Supabase standard
+            options={
+                "verify_aud": False,  # Supabase tokens don't have standard aud claim
+                "verify_signature": True
+            }
+        )
+        return payload
     except HTTPException:
         raise
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
