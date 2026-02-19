@@ -307,7 +307,8 @@ export function AttendanceEditor({
           </p>
         ) : null */}
         </div>
-        <Button onClick={handleSave} disabled={locked || isPending}>
+        {/* COMMENTED OUT FOR TESTING - disabled={locked || isPending} */}
+        <Button onClick={handleSave} disabled={isPending}>
           {isPending ? "Saving..." : "Save attendance"}
         </Button>
       </div>
