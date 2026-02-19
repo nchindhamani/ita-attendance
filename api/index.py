@@ -782,9 +782,13 @@ async def add_student(
         if hasattr(existing_response, 'error') and existing_response.error:
             error = existing_response.error
             error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error in existing student check: {error_message}")
             raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
         
-        if hasattr(existing_response, 'data') and existing_response.data:
+        # Check if student already exists
+        # If existing_response.data is None, it means no student found (good - we can proceed)
+        # If existing_response.data exists, it means student already exists (bad - return error)
+        if hasattr(existing_response, 'data') and existing_response.data is not None:
             existing = existing_response.data
             section_info = existing.get("sections")
             if isinstance(section_info, list) and len(section_info) > 0:
