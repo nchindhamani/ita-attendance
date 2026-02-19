@@ -115,17 +115,15 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         # Supabase access tokens use HS256 with a plain string secret (not PEM)
         # However, some token headers may claim ES256/RS256
         
-        # First, decode without verification to check the algorithm
+        # First, decode the header to check what algorithm it claims
+        import base64
+        import json
         try:
-            unverified_header = jwt.decode(token, options={"verify_signature": False})
-            # Get the algorithm from the header
-            import base64
             header_part = token.split('.')[0]
-            # Add padding if needed
+            # Add padding if needed for base64 decoding
             header_part += '=' * (4 - len(header_part) % 4)
-            header = base64.urlsafe_b64decode(header_part)
-            import json
-            header_dict = json.loads(header)
+            header_bytes = base64.urlsafe_b64decode(header_part)
+            header_dict = json.loads(header_bytes)
             token_algorithm = header_dict.get("alg", "HS256")
             print(f"Token algorithm from header: {token_algorithm}")
         except Exception as e:
@@ -133,43 +131,81 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
             token_algorithm = "HS256"
         
         # Supabase tokens are ALWAYS signed with HS256, even if header claims otherwise
-        # PyJWT checks the algorithm in the header, so we need to allow both
-        # But signature will only verify if it's actually HS256
-        allowed_algorithms = ["HS256"]
-        if token_algorithm != "HS256":
-            # Add the claimed algorithm to pass PyJWT's check
-            # But signature verification will only work if it's actually HS256
-            allowed_algorithms.append(token_algorithm)
-            print(f"Token header claims {token_algorithm}, but verifying with HS256 (Supabase standard)")
+        # If header claims ES256/RS256, we can't add it to allowed algorithms because
+        # PyJWT will try to verify with it (requiring PEM keys)
+        # Solution: Decode without verification, then manually verify signature with HS256
         
-        # Decode and verify - signature will only verify if it's HS256
-        payload = jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=allowed_algorithms,  # Allow both to pass algorithm check
-            options={
-                "verify_signature": True,
-                "verify_exp": True,
-                "verify_aud": False  # Supabase tokens don't have standard aud claim
-            }
-        )
-        return payload
+        if token_algorithm != "HS256":
+            print(f"Token header claims {token_algorithm}, but Supabase uses HS256. Decoding without verification, then manually verifying with HS256.")
+            
+            # Decode without verification to get the payload
+            unverified_payload = jwt.decode(token, options={"verify_signature": False})
+            
+            # Manually verify the signature using HS256
+            # Split token into parts
+            parts = token.split('.')
+            if len(parts) != 3:
+                raise HTTPException(status_code=401, detail="Invalid token format")
+            
+            header_part, payload_part, signature_part = parts
+            
+            # Recreate the message that was signed
+            message = f"{header_part}.{payload_part}"
+            
+            # Decode the signature
+            try:
+                signature_bytes = base64.urlsafe_b64decode(signature_part + '=' * (4 - len(signature_part) % 4))
+            except Exception:
+                raise HTTPException(status_code=401, detail="Invalid token signature format")
+            
+            # Verify signature using HMAC-SHA256 (HS256)
+            import hmac
+            import hashlib
+            
+            # Create expected signature
+            expected_signature = hmac.new(
+                SUPABASE_JWT_SECRET.encode('utf-8'),
+                message.encode('utf-8'),
+                hashlib.sha256
+            ).digest()
+            
+            # Compare signatures (constant-time comparison)
+            if not hmac.compare_digest(signature_bytes, expected_signature):
+                raise HTTPException(status_code=401, detail="Invalid token signature")
+            
+            # Check expiration manually
+            import time
+            if 'exp' in unverified_payload:
+                if unverified_payload['exp'] < time.time():
+                    raise HTTPException(status_code=401, detail="Token has expired. Please sign in again.")
+            
+            return unverified_payload
+        else:
+            # Header claims HS256, use normal PyJWT verification
+            payload = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={
+                    "verify_signature": True,
+                    "verify_exp": True,
+                    "verify_aud": False
+                }
+            )
+            return payload
+    except HTTPException:
+        raise
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired. Please sign in again.")
     except jwt.InvalidSignatureError:
         raise HTTPException(
             status_code=401, 
-            detail="Invalid token signature. The token may be corrupted or from a different source. Please sign out and sign in again."
+            detail="Invalid token signature. Please sign out and sign in again."
         )
     except jwt.DecodeError as e:
         raise HTTPException(status_code=401, detail=f"Token decode error: {str(e)}")
     except Exception as e:
         error_msg = str(e)
-        if "algorithm" in error_msg.lower() or "not allowed" in error_msg.lower() or "specified alg" in error_msg.lower():
-            raise HTTPException(
-                status_code=401,
-                detail=f"Token algorithm issue: {error_msg}. Please sign out and sign in again to get a fresh token."
-            )
         raise HTTPException(status_code=401, detail=f"Token verification failed: {error_msg}")
 
 async def get_current_profile(user: dict = Depends(get_current_user)) -> dict:
