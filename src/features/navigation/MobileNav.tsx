@@ -1,7 +1,5 @@
-"use client";
-
 import { useState } from "react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 
@@ -53,7 +51,7 @@ export function MobileNav({ links }: MobileNavProps) {
               {links.map((link) => (
                 <Link
                   key={link.href}
-                  href={link.href}
+                  to={link.href}
                   className="px-4 py-2 text-sm rounded-md hover:bg-muted transition-colors"
                   onClick={() => setIsOpen(false)}
                 >

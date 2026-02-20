@@ -27,3 +27,4 @@ export function RealtimeRefresh({ table }: { table: string }) {
   return null;
 }
 
+

@@ -27,7 +27,7 @@ export function capitalizeName(name: string): string {
       // Handle words with apostrophes or hyphens
       return word
         .split(/(['-])/)
-        .map((part, index) => {
+        .map((part) => {
           // Skip separators (apostrophes and hyphens)
           if (part === "'" || part === "-") {
             return part;

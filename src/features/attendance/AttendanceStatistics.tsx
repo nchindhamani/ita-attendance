@@ -1,6 +1,4 @@
-"use client";
-
-type AttendanceStatus = "present" | "absent" | "late" | "left_early";
+// AttendanceStatus type is imported from @/lib/types
 
 interface AttendanceStatisticsProps {
   counts: {

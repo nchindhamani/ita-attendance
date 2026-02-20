@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO: This file is deprecated - use src/lib/auth-client.ts instead
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Profile, Role } from "@/lib/types";

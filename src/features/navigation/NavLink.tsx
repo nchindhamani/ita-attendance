@@ -1,7 +1,4 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 interface NavLinkProps {
@@ -10,7 +7,8 @@ interface NavLinkProps {
 }
 
 export function NavLink({ href, label }: NavLinkProps) {
-  const pathname = usePathname();
+  const location = useLocation();
+  const pathname = location.pathname;
   
   // More precise active state matching
   // For routes like /admin, only match exactly (not /admin/student-attendance)
@@ -24,7 +22,7 @@ export function NavLink({ href, label }: NavLinkProps) {
 
   return (
     <Link
-      href={href}
+      to={href}
       className={cn(
         "relative px-6 py-3 rounded-lg transition-all duration-300 ease-smooth border-b-2 border-transparent",
         isActive

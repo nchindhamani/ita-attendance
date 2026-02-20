@@ -2,3 +2,4 @@
 alter table if exists profiles
   add column if not exists is_approved boolean default false;
 
+

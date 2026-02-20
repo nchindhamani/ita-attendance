@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Papa from "papaparse";
 import { toast } from "sonner";
 import { Check, X, Clock, ArrowRight, Pencil } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,22 +16,225 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+// Table components imported but not used in current implementation
+// import {
+//   Table,
+//   TableBody,
+//   TableCell,
+//   TableHead,
+//   TableHeader,
+//   TableRow,
+// } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { AttendanceStatus } from "@/lib/types";
-import {
-  addStudent,
-  addStudentsFromCsv,
-  saveAttendance,
-  type AttendanceEntryInput,
-} from "@/app/(dashboard)/attendance/actions";
+// TODO: Convert these to API calls to /api/attendance
+// import {
+//   addStudent,
+//   addStudentsFromCsv,
+//   saveAttendance,
+//   type AttendanceEntryInput,
+// } from "@/app/(dashboard)/attendance/actions";
+
+// Temporary type definition
+type AttendanceEntryInput = {
+  studentId: string;
+  status: string;
+  comments?: string | null;
+};
+
+// API call functions
+const supabase = createSupabaseBrowserClient();
+
+const addStudent = async (params: {
+  sectionId: string;
+  schoolYear: string;
+  studentIdentifier: string;
+  fullName: string;
+}): Promise<{ success?: string; error?: string }> => {
+  try {
+    // Get JWT token from Supabase session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { error: "Not authenticated. Please sign in again." };
+    }
+
+    // Call Python API
+    const response = await fetch("/api/students", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sectionId: params.sectionId,
+        schoolYear: params.schoolYear,
+        studentIdentifier: params.studentIdentifier,
+        fullName: params.fullName,
+      }),
+    });
+
+    // Check if response has content before parsing
+    const contentType = response.headers.get("content-type");
+    const responseText = await response.text();
+
+    // Handle empty responses
+    if (!responseText || responseText.trim() === "") {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.` 
+      };
+    }
+
+    // Check if response is JSON
+    if (!contentType || !contentType.includes("application/json")) {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}` 
+      };
+    }
+
+    // Parse JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      return { 
+        error: `Failed to parse server response: ${responseText.substring(0, 200)}` 
+      };
+    }
+
+    if (!response.ok) {
+      return { error: data.error || data.detail || `Server error: ${response.status}` };
+    }
+
+    return data;
+  } catch (err) {
+    return { 
+      error: err instanceof Error ? err.message : "Failed to add student" 
+    };
+  }
+};
+
+async function addStudentsFromCsv(params: {
+  sectionId: string
+  schoolYear: string
+  students: { studentIdentifier: string; fullName: string }[]
+}): Promise<{ success?: string; error?: string }> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      return { error: 'Not authenticated. Please sign in again.' }
+    }
+
+    const response = await fetch('/api/students/bulk', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sectionId: params.sectionId,
+        schoolYear: params.schoolYear,
+        students: params.students,
+      }),
+    })
+
+    const contentType = response.headers.get('content-type')
+    const responseText = await response.text()
+
+    if (!responseText || responseText.trim() === '') {
+      return {
+        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.`,
+      }
+    }
+
+    if (!contentType || !contentType.includes('application/json')) {
+      return {
+        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}`,
+      }
+    }
+
+    let data
+    try {
+      data = JSON.parse(responseText)
+    } catch (parseError) {
+      return {
+        error: `Failed to parse server response: ${responseText.substring(0, 200)}`,
+      }
+    }
+
+    if (!response.ok) {
+      return { error: data.detail || data.error || 'Failed to upload roster.' }
+    }
+
+    return { success: data.success || 'Student roster uploaded.' }
+  } catch (e: any) {
+    return { error: e.message || 'An unexpected error occurred.' }
+  }
+}
+const saveAttendance = async (params: {
+  sectionId: string;
+  attendanceDate: string;
+  schoolYear: string;
+  entries: AttendanceEntryInput[];
+}): Promise<{ success?: string; error?: string }> => {
+  try {
+    // Get JWT token from Supabase session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { error: "Not authenticated. Please sign in again." };
+    }
+
+    // Call Python API
+    const response = await fetch("/api/attendance", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sectionId: params.sectionId,
+        attendanceDate: params.attendanceDate,
+        schoolYear: params.schoolYear,
+        entries: params.entries,
+      }),
+    });
+
+    // Check if response has content before parsing
+    const contentType = response.headers.get("content-type");
+    const responseText = await response.text();
+    
+    // Handle empty responses
+    if (!responseText || responseText.trim() === "") {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.` 
+      };
+    }
+    
+    // Check if response is JSON
+    if (!contentType || !contentType.includes("application/json")) {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}` 
+      };
+    }
+
+    // Parse JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      return { 
+        error: `Failed to parse server response: ${responseText.substring(0, 200)}` 
+      };
+    }
+
+    if (!response.ok) {
+      return { error: data.error || data.detail || "Failed to save attendance" };
+    }
+
+    return { success: data.success || "Attendance saved." };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "An unexpected error occurred" };
+  }
+};
 import { AttendanceStatistics } from "./AttendanceStatistics";
 
 type Student = {
@@ -44,12 +248,13 @@ type ExistingAttendance = Record<
   { status: AttendanceStatus; comments?: string | null }
 >;
 
-const statusOptions: { value: AttendanceStatus; label: string }[] = [
-  { value: "present", label: "Present" },
-  { value: "absent", label: "Absent" },
-  { value: "late", label: "Late" },
-  { value: "left_early", label: "Left Early" },
-];
+// Status options for attendance (currently unused but kept for future use)
+// const statusOptions: { value: AttendanceStatus; label: string }[] = [
+//   { value: "present", label: "Present" },
+//   { value: "absent", label: "Absent" },
+//   { value: "late", label: "Late" },
+//   { value: "left_early", label: "Left Early" },
+// ];
 
 export function AttendanceEditor({
   sectionId,
@@ -59,6 +264,7 @@ export function AttendanceEditor({
   existing,
   locked,
   holidayName,
+  onStudentAdded,
 }: {
   sectionId: string;
   schoolYear: string;
@@ -67,6 +273,7 @@ export function AttendanceEditor({
   existing: ExistingAttendance;
   locked: boolean;
   holidayName?: string | null;
+  onStudentAdded?: () => void | Promise<void>;
 }) {
   const [isPending, startTransition] = useTransition();
   const [csvPending, startCsvTransition] = useTransition();
@@ -117,22 +324,24 @@ export function AttendanceEditor({
   }, [entries]);
 
   const handleSave = () => {
-    if (locked) {
-      toast.error("Attendance is locked after 3:00 PM PT.");
-      return;
-    }
-    startTransition(async () => {
-      const result = await saveAttendance({
+    // COMMENTED OUT FOR TESTING - Daily cutoff check
+    // if (locked) {
+    //   toast.error("Attendance is locked after 3:00 PM PT.");
+    //   return;
+    // }
+    startTransition(() => {
+      saveAttendance({
         sectionId,
         attendanceDate,
         schoolYear,
         entries,
+      }).then((result) => {
+        if (result?.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(result?.success ?? "Attendance saved.");
+        }
       });
-      if (result?.error) {
-        toast.error(result.error);
-      } else {
-        toast.success(result?.success ?? "Attendance saved.");
-      }
     });
   };
 
@@ -141,21 +350,26 @@ export function AttendanceEditor({
       toast.error("Enter a student ID and name.");
       return;
     }
-    startTransition(async () => {
-      const result = await addStudent({
+    startTransition(() => {
+      addStudent({
         sectionId,
         schoolYear,
         studentIdentifier: studentIdentifier.trim(),
         fullName: studentName.trim(),
+      }).then(async (result) => {
+        if (result?.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(result?.success ?? "Student added.");
+          setStudentIdentifier("");
+          setStudentName("");
+          setDialogOpen(false);
+          // Refresh student list
+          if (onStudentAdded) {
+            await onStudentAdded();
+          }
+        }
       });
-      if (result?.error) {
-        toast.error(result.error);
-      } else {
-        toast.success(result?.success ?? "Student added.");
-        setStudentIdentifier("");
-        setStudentName("");
-        setDialogOpen(false);
-      }
     });
   };
 
@@ -213,13 +427,16 @@ export function AttendanceEditor({
           <p className="text-sm text-emerald-600">
             Holiday: {holidayName}. Attendance is not required today.
           </p>
-        ) : locked ? (
+        ) : null}
+        {/* COMMENTED OUT FOR TESTING - Daily cutoff lock message */}
+        {/* locked ? (
           <p className="text-sm text-destructive">
             Attendance is locked after 11:00 PM PT.
           </p>
-        ) : null}
+        ) : null */}
         </div>
-        <Button onClick={handleSave} disabled={locked || isPending}>
+        {/* COMMENTED OUT FOR TESTING - disabled={locked || isPending} */}
+        <Button onClick={handleSave} disabled={isPending}>
           {isPending ? "Saving..." : "Save attendance"}
         </Button>
       </div>

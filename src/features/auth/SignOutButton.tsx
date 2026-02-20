@@ -1,7 +1,5 @@
-"use client";
-
 import { useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -13,7 +11,7 @@ interface SignOutButtonProps {
 }
 
 export function SignOutButton({ variant = "default", className }: SignOutButtonProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isPending, startTransition] = useTransition();
 
   if (variant === "sidebar") {
@@ -22,11 +20,11 @@ export function SignOutButton({ variant = "default", className }: SignOutButtonP
         type="button"
         disabled={isPending}
         onClick={() => {
-          startTransition(async () => {
+          startTransition(() => {
             const supabase = createSupabaseBrowserClient();
-            await supabase.auth.signOut();
-            router.replace("/");
-            router.refresh();
+            supabase.auth.signOut().then(() => {
+              navigate("/", { replace: true });
+            });
           });
         }}
         className={cn(
@@ -46,11 +44,11 @@ export function SignOutButton({ variant = "default", className }: SignOutButtonP
       type="button"
       disabled={isPending}
       onClick={() => {
-        startTransition(async () => {
+        startTransition(() => {
           const supabase = createSupabaseBrowserClient();
-          await supabase.auth.signOut();
-          router.replace("/");
-          router.refresh();
+          supabase.auth.signOut().then(() => {
+            navigate("/", { replace: true });
+          });
         });
       }}
       className={className}

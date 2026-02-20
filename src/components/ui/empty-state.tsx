@@ -1,4 +1,4 @@
-import * as React from "react";
+// React import not needed with new JSX transform
 import { CheckCircle2, Inbox, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
