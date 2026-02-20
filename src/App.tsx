@@ -10,6 +10,7 @@ import ResetPasswordPage from './pages/auth/ResetPasswordPage'
 import UpdatePasswordPage from './pages/auth/UpdatePasswordPage'
 import VerifyEmailPage from './pages/auth/VerifyEmailPage'
 import PendingApprovalPage from './pages/auth/PendingApprovalPage'
+import AuthCallbackPage from './pages/auth/AuthCallbackPage'
 
 // Dashboard pages
 import DashboardPage from './pages/dashboard/DashboardPage'
@@ -44,6 +45,9 @@ function App() {
       <Routes>
         {/* Public routes */}
         <Route path="/" element={<HomePage />} />
+        
+        {/* Auth callback - handles password reset and email verification links */}
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         
         {/* Auth routes */}
         <Route element={<AuthLayout />}>

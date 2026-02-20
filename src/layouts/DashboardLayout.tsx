@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom'
+import { Outlet, Link } from 'react-router-dom'
 import { Users } from 'lucide-react'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { Sidebar } from '@/features/navigation/Sidebar'
@@ -50,9 +50,9 @@ export default function DashboardLayout() {
             <Users className="w-5 h-5 text-white" />
           </div>
           <div className="text-center">
-            <div className="text-lg font-heading font-bold text-white leading-tight">
+            <Link to="/dashboard" className="text-lg font-heading font-bold text-white leading-tight hover:opacity-80 transition-opacity">
               ITA Attendance Hub
-            </div>
+            </Link>
           </div>
         </div>
       </header>

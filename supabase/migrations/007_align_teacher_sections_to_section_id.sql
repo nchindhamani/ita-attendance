@@ -39,3 +39,4 @@ alter table if exists teacher_sections
 create unique index if not exists teacher_sections_teacher_section_idx
   on teacher_sections (teacher_id, section_id);
 
+

@@ -113,9 +113,63 @@ const addStudent = async (params: {
   }
 };
 
-const addStudentsFromCsv = async (params: any): Promise<{ success?: string; error?: string }> => ({ success: "Stub - to be implemented" });
+async function addStudentsFromCsv(params: {
+  sectionId: string
+  schoolYear: string
+  students: { studentIdentifier: string; fullName: string }[]
+}): Promise<{ success?: string; error?: string }> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      return { error: 'Not authenticated. Please sign in again.' }
+    }
 
-// Real implementation: Call Python API
+    const response = await fetch('/api/students/bulk', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sectionId: params.sectionId,
+        schoolYear: params.schoolYear,
+        students: params.students,
+      }),
+    })
+
+    const contentType = response.headers.get('content-type')
+    const responseText = await response.text()
+
+    if (!responseText || responseText.trim() === '') {
+      return {
+        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.`,
+      }
+    }
+
+    if (!contentType || !contentType.includes('application/json')) {
+      return {
+        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}`,
+      }
+    }
+
+    let data
+    try {
+      data = JSON.parse(responseText)
+    } catch (parseError) {
+      return {
+        error: `Failed to parse server response: ${responseText.substring(0, 200)}`,
+      }
+    }
+
+    if (!response.ok) {
+      return { error: data.detail || data.error || 'Failed to upload roster.' }
+    }
+
+    return { success: data.success || 'Student roster uploaded.' }
+  } catch (e: any) {
+    return { error: e.message || 'An unexpected error occurred.' }
+  }
+}
 const saveAttendance = async (params: {
   sectionId: string;
   attendanceDate: string;

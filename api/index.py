@@ -5,6 +5,8 @@ Hosted as Vercel Serverless Function
 import os
 import json
 import traceback
+import csv
+import io
 import base64
 import hmac
 import hashlib
@@ -89,6 +91,7 @@ from jwt import PyJWKClient
 from supabase import create_client, Client
 import pytz
 import traceback
+import httpx
 
 # Initialize FastAPI app
 # Vercel detects FastAPI by looking for an 'app' variable at module level
@@ -496,6 +499,131 @@ class AddStudentRequest(BaseModel):
 class AddStudentResponse(BaseModel):
     success: Optional[str] = None
     error: Optional[str] = None
+
+class BulkStudentItem(BaseModel):
+    studentIdentifier: str
+    fullName: str
+
+class BulkAddStudentsRequest(BaseModel):
+    sectionId: str
+    schoolYear: str
+    students: list[BulkStudentItem]
+
+class BulkAddStudentsResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
+class UpdateStudentRequest(BaseModel):
+    studentId: str
+    studentIdentifier: str
+    fullName: str
+    sectionId: str
+
+class UpdateStudentResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    mobile: Optional[str] = None
+    grade: Optional[str] = None
+    section: Optional[str] = None
+    room_number: Optional[str] = None
+    role: str  # "teacher" or "admin"
+
+class SignupResponse(BaseModel):
+    success: Optional[bool] = None
+    error: Optional[str] = None
+
+class AdminResetPasswordRequest(BaseModel):
+    email: str
+    new_password: str
+
+class AdminResetPasswordResponse(BaseModel):
+    success: Optional[bool] = None
+    error: Optional[str] = None
+
+class ApproveUserRequest(BaseModel):
+    profileId: str
+    role: str  # "teacher" or "admin"
+
+class ApproveUserResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
+class ToggleUserActiveRequest(BaseModel):
+    profileId: str
+    isActive: bool
+
+class ToggleUserActiveResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
+class UpdateUserRoleRequest(BaseModel):
+    profileId: str
+    role: str  # "teacher" or "admin"
+
+class UpdateUserRoleResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
+class UserResponse(BaseModel):
+    id: str
+    full_name: Optional[str] = None
+    email: str
+    role: str
+    grade: Optional[str] = None
+    section: Optional[str] = None
+    mobile: Optional[str] = None
+    is_active: bool
+    is_approved: bool
+    created_at: str
+
+class UsersListResponse(BaseModel):
+    users: list[UserResponse]
+
+class SectionResponse(BaseModel):
+    id: str
+    grade: str
+    section: str
+
+class SectionsListResponse(BaseModel):
+    sections: list[SectionResponse]
+
+class AttendanceEntryResponse(BaseModel):
+    student_name: str
+    student_identifier: Optional[int] = None
+    status: str
+    comments: Optional[str] = None
+
+class AttendanceListResponse(BaseModel):
+    entries: list[AttendanceEntryResponse]
+    statistics: dict
+
+class ArchiveSettingsResponse(BaseModel):
+    current_school_year: str
+    archive_status: str
+    archive_path: Optional[str] = None
+
+class PrepareArchiveResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
+class PurgeArchiveRequest(BaseModel):
+    confirmed: bool
+
+class PurgeArchiveResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
+class DownloadLinkResponse(BaseModel):
+    label: str
+    url: str
+
+class DownloadLinksResponse(BaseModel):
+    links: list[DownloadLinkResponse]
 
 # Routes
 # Root endpoint (without /api prefix for health checks)
@@ -944,6 +1072,1454 @@ async def add_student(
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to add student: {str(e)}"}
+        )
+
+@api_router.put("/students", response_model=UpdateStudentResponse)
+async def update_student(
+    payload: UpdateStudentRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Update an existing student
+    Migrated from TypeScript updateStudent Server Action
+    """
+    try:
+        log_info(f"update_student called - studentId: {payload.studentId}, studentIdentifier: {payload.studentIdentifier}, fullName: {payload.fullName}")
+        
+        # Validate student identifier is a number
+        try:
+            student_identifier = int(payload.studentIdentifier)
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Student ID must be a number."}
+            )
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Check if the new student_identifier already exists for a different student globally
+        existing_response = admin_supabase.table("students").select(
+            "id,full_name,section_id,sections(grade,section)"
+        ).eq("student_identifier", student_identifier).neq("id", payload.studentId).maybe_single().execute()
+        
+        if existing_response is None:
+            log_warning("Supabase returned None for existing student check during update, assuming no conflict.")
+        elif hasattr(existing_response, 'error') and existing_response.error:
+            error = existing_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error in existing student check: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+        elif hasattr(existing_response, 'data') and existing_response.data is not None:
+            # Student ID already exists for another student
+            existing = existing_response.data
+            section_info = existing.get("sections")
+            if isinstance(section_info, list) and len(section_info) > 0:
+                section_info = section_info[0]
+            elif not section_info:
+                section_info = None
+            
+            if section_info:
+                section_display = f"Grade {section_info.get('grade')} {section_info.get('section')}"
+            else:
+                section_display = "another class"
+            
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": f"Student ID {student_identifier} already exists for {existing.get('full_name')} in {section_display}. Each student ID must be unique across all classes."
+                }
+            )
+        
+        # Update student
+        capitalized_name = capitalize_name(payload.fullName.strip())
+        update_data = {
+            "student_identifier": student_identifier,
+            "full_name": capitalized_name,
+        }
+        
+        log_info(f"Updating student: {update_data}")
+        
+        update_response = admin_supabase.table("students").update(update_data).eq("id", payload.studentId).execute()
+        
+        if update_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for student update")
+        
+        if hasattr(update_response, 'error') and update_response.error:
+            error = update_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error updating student: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Unable to update student: {error_message}")
+        
+        # Also update student_identifier in attendance records
+        attendance_update_response = admin_supabase.table("attendance").update(
+            {"student_identifier": student_identifier}
+        ).eq("student_id", payload.studentId).execute()
+        
+        if attendance_update_response and hasattr(attendance_update_response, 'error') and attendance_update_response.error:
+            log_warning(f"Warning: Failed to update student_identifier in attendance records: {attendance_update_response.error}")
+            # Don't fail the whole operation if attendance update fails
+        
+        log_info("Student updated successfully")
+        return {"success": "Student updated."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error updating student: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to update student: {str(e)}"}
+        )
+
+@api_router.post("/students/bulk", response_model=BulkAddStudentsResponse)
+async def bulk_add_students(
+    payload: BulkAddStudentsRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Add multiple students from CSV upload
+    Migrated from TypeScript addStudentsFromCsv Server Action
+    """
+    try:
+        log_info(f"bulk_add_students called - sectionId: {payload.sectionId}, studentCount: {len(payload.students)}")
+        
+        if not payload.sectionId:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Missing section for this class."}
+            )
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Get section to verify it exists and get school_year
+        section_response = admin_supabase.table("sections").select("school_year").eq("id", payload.sectionId).maybe_single().execute()
+        
+        if section_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for section query")
+        if hasattr(section_response, 'error') and section_response.error:
+            error = section_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+        if not hasattr(section_response, 'data') or not section_response.data:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Section not found."}
+            )
+        
+        section = section_response.data
+        school_year = section.get("school_year") or payload.schoolYear
+        
+        # Process and validate student records
+        records = []
+        for student in payload.students:
+            try:
+                student_identifier = int(student.studentIdentifier.strip())
+                if not isinstance(student_identifier, int):
+                    continue  # Skip invalid IDs
+            except (ValueError, AttributeError):
+                continue  # Skip non-numeric IDs
+            
+            full_name = student.fullName.strip()
+            if not full_name:
+                continue  # Skip empty names
+            
+            records.append({
+                "student_identifier": student_identifier,
+                "full_name": capitalize_name(full_name),
+                "section_id": payload.sectionId,
+                "school_year": school_year,
+            })
+        
+        if len(records) == 0:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No valid student rows found in CSV."}
+            )
+        
+        # Check for duplicate student_identifiers in the CSV itself
+        identifier_counts = {}
+        for record in records:
+            student_id = record.get("student_identifier")
+            if student_id:
+                identifier_counts[student_id] = identifier_counts.get(student_id, 0) + 1
+        
+        duplicates_in_csv = [student_id for student_id, count in identifier_counts.items() if count > 1]
+        if duplicates_in_csv:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Duplicate student IDs found in CSV: {', '.join(map(str, duplicates_in_csv))}. Each student ID must be unique."}
+            )
+        
+        # Check for existing student_identifiers in the database globally
+        identifiers_to_check = [r.get("student_identifier") for r in records if r.get("student_identifier")]
+        
+        if identifiers_to_check:
+            existing_response = admin_supabase.table("students").select(
+                "student_identifier,full_name,section_id,sections(grade,section)"
+            ).in_("student_identifier", identifiers_to_check).execute()
+            
+            if existing_response is None:
+                raise HTTPException(status_code=500, detail="Supabase returned None for existing students query")
+            if hasattr(existing_response, 'error') and existing_response.error:
+                error = existing_response.error
+                error_message = getattr(error, 'message', str(error)) if error else str(error)
+                log_error(f"Supabase error checking existing students: {error_message}")
+                raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+            
+            existing_students = existing_response.data if hasattr(existing_response, 'data') else []
+            
+            if existing_students:
+                duplicates = []
+                for s in existing_students:
+                    section_info = s.get("sections")
+                    if isinstance(section_info, list) and len(section_info) > 0:
+                        section_info = section_info[0]
+                    elif not section_info:
+                        section_info = None
+                    
+                    if section_info:
+                        section_display = f"Grade {section_info.get('grade')} {section_info.get('section')}"
+                    else:
+                        section_display = "another class"
+                    
+                    duplicates.append(f"ID {s.get('student_identifier')} ({s.get('full_name')} - {section_display})")
+                
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"The following student IDs already exist: {', '.join(duplicates)}. Each student ID must be unique across all classes. Please remove them from the CSV or use different student IDs."}
+                )
+        
+        # Insert students
+        insert_response = admin_supabase.table("students").insert(records).select("id,full_name,student_identifier").execute()
+        
+        if insert_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for students insert")
+        if hasattr(insert_response, 'error') and insert_response.error:
+            error = insert_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error inserting students: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Unable to upload roster: {error_message}")
+        
+        inserted_students = insert_response.data if hasattr(insert_response, 'data') else []
+        
+        # Backfill attendance records for existing dates
+        attendance_dates_response = admin_supabase.table("attendance").select(
+            "attendance_date,students!inner(section_id)"
+        ).eq("students.section_id", payload.sectionId).execute()
+        
+        if attendance_dates_response is None:
+            log_warning("Supabase returned None for attendance dates query, skipping backfill")
+        elif hasattr(attendance_dates_response, 'error') and attendance_dates_response.error:
+            log_warning(f"Warning: Error fetching attendance dates: {attendance_dates_response.error}")
+        else:
+            attendance_dates_data = attendance_dates_response.data if hasattr(attendance_dates_response, 'data') else []
+            unique_dates = list(set([row.get("attendance_date") for row in attendance_dates_data if row.get("attendance_date")]))
+            
+            if unique_dates:
+                # Get holidays
+                holidays_response = admin_supabase.table("holidays").select("holiday_date").eq("school_year", school_year).in_("holiday_date", unique_dates).execute()
+                
+                holiday_set = set()
+                if holidays_response and hasattr(holidays_response, 'data') and holidays_response.data:
+                    holiday_set = set([row.get("holiday_date") for row in holidays_response.data if row.get("holiday_date")])
+                
+                eligible_dates = [date for date in unique_dates if date not in holiday_set]
+                
+                if eligible_dates and inserted_students:
+                    backfill_records = []
+                    for student in inserted_students:
+                        student_id = student.get("id")
+                        student_identifier = student.get("student_identifier")
+                        
+                        if not student_id or not student_identifier:
+                            log_warning(f"Warning: Student {student.get('full_name')} missing id or student_identifier, skipping backfill")
+                            continue
+                        
+                        for date in eligible_dates:
+                            backfill_records.append({
+                                "student_id": student_id,
+                                "student_identifier": student_identifier,
+                                "section_id": payload.sectionId,
+                                "recorded_by": profile.get("id"),
+                                "attendance_date": date,
+                                "status": "absent",
+                                "comments": None,
+                                "school_year": school_year,
+                            })
+                    
+                    if backfill_records:
+                        backfill_response = admin_supabase.table("attendance").upsert(
+                            backfill_records,
+                            on_conflict="student_id,attendance_date"
+                        ).execute()
+                        
+                        if backfill_response and hasattr(backfill_response, 'error') and backfill_response.error:
+                            log_warning(f"Warning: Error backfilling attendance: {backfill_response.error}")
+        
+        log_info(f"Bulk add students successful: {len(inserted_students)} students added")
+        return {"success": "Student roster uploaded."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in bulk_add_students: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to upload roster: {str(e)}"}
+        )
+
+@api_router.post("/auth/signup", response_model=SignupResponse)
+async def signup(payload: SignupRequest):
+    """
+    User signup endpoint
+    Migrated from TypeScript signUpWithPassword Server Action
+    
+    Note: For security, passwords are handled by Supabase Auth client-side.
+    This endpoint creates the user via Supabase Admin API and then creates the profile.
+    """
+    try:
+        log_info(f"signup called - email: {payload.email}, role: {payload.role}")
+        
+        # Normalize role
+        normalized_role = "admin" if payload.role == "admin" else "teacher"
+        
+        # Validation
+        if not payload.email or not payload.password or not payload.full_name:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Please provide your name, email, and password."}
+            )
+        
+        if normalized_role == "teacher" and (not payload.grade or not payload.section or not payload.room_number):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Grade, section, and room number are required for teachers."}
+            )
+        
+        # Normalize email
+        email = payload.email.strip().lower()
+        
+        # Get admin client for checking existing users and creating profile
+        admin_supabase = get_supabase_admin_client()
+        
+        # Check if user already exists
+        existing_response = admin_supabase.table("profiles").select("id,is_active").eq("email", email).maybe_single().execute()
+        
+        if existing_response is None:
+            log_warning("Supabase returned None for existing user check, assuming no existing user.")
+        elif hasattr(existing_response, 'error') and existing_response.error:
+            error = existing_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error checking existing user: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+        elif hasattr(existing_response, 'data') and existing_response.data is not None:
+            existing = existing_response.data
+            if existing.get("is_active"):
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Your email already exists. If you forgot your password, please reset it."}
+                )
+            else:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Your profile has been deactivated. Please contact the admin."}
+                )
+        
+        # Get current school year
+        settings_response = admin_supabase.table("system_settings").select("current_school_year").eq("id", 1).execute()
+        
+        if settings_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for settings query")
+        if hasattr(settings_response, 'error') and settings_response.error:
+            error = settings_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching settings: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+        if not hasattr(settings_response, 'data') or not settings_response.data:
+            raise HTTPException(status_code=500, detail="Supabase response missing data for settings")
+        
+        settings_data = settings_response.data
+        if isinstance(settings_data, list) and len(settings_data) > 0:
+            current_school_year = settings_data[0].get("current_school_year", "2025-2026")
+        elif isinstance(settings_data, dict):
+            current_school_year = settings_data.get("current_school_year", "2025-2026")
+        else:
+            current_school_year = "2025-2026"
+        
+        # For teachers, validate section/room number
+        if normalized_role == "teacher":
+            grade = payload.grade.strip()
+            section = payload.section.strip()
+            room_number = payload.room_number.strip()
+            
+            # Check if section exists
+            section_response = admin_supabase.table("sections").select("id,room_number").eq("grade", grade).eq("section", section).eq("school_year", current_school_year).maybe_single().execute()
+            
+            if section_response is None:
+                log_warning("Supabase returned None for section check, assuming section doesn't exist.")
+            elif hasattr(section_response, 'error') and section_response.error:
+                error = section_response.error
+                error_message = getattr(error, 'message', str(error)) if error else str(error)
+                log_error(f"Supabase error checking section: {error_message}")
+                raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+            elif hasattr(section_response, 'data') and section_response.data is not None:
+                existing_section = section_response.data
+                existing_room = existing_section.get("room_number")
+                if existing_room and room_number and existing_room != room_number:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Please check the room number for the selected grade and section."}
+                    )
+        
+        # Create user in Supabase Auth using Admin API
+        SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+        SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(status_code=500, detail="Supabase configuration missing")
+        
+        # Create user via Supabase Admin API
+        auth_url = f"{SUPABASE_URL}/auth/v1/admin/users"
+        headers = {
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        user_data = {
+            "email": email,
+            "password": payload.password,
+            "email_confirm": True,  # Auto-confirm email for now
+            "user_metadata": {
+                "full_name": capitalize_name(payload.full_name.strip())
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(auth_url, json=user_data, headers=headers, timeout=30.0)
+            
+            if response.status_code not in [200, 201]:
+                error_text = response.text
+                log_error(f"Failed to create user in Supabase Auth: {response.status_code} - {error_text}")
+                
+                # Handle duplicate email error
+                if "already registered" in error_text.lower() or "user already exists" in error_text.lower() or "email address is already" in error_text.lower():
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "This email address is already registered. If you forgot your password, please use the 'Forgot Password' link to reset it."}
+                    )
+                
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": f"Failed to create user: {error_text}"}
+                )
+            
+            user_result = response.json()
+            user_id = user_result.get("id")
+            
+            if not user_id:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": "User created but no user ID returned"}
+                )
+        
+        # Create profile record
+        capitalized_name = capitalize_name(payload.full_name.strip())
+        profile_data = {
+            "id": user_id,
+            "email": email,
+            "full_name": capitalized_name,
+            "mobile": payload.mobile.strip() if payload.mobile else None,
+            "grade": payload.grade.strip() if payload.grade else None,
+            "section": payload.section.strip() if payload.section else None,
+            "room_number": payload.room_number.strip() if payload.room_number else None,
+            "role": normalized_role,
+            "is_active": False,
+            "is_approved": False,
+        }
+        
+        log_info(f"Creating profile: {profile_data}")
+        
+        profile_response = admin_supabase.table("profiles").insert(profile_data).execute()
+        
+        if profile_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for profile insert")
+        if hasattr(profile_response, 'error') and profile_response.error:
+            error = profile_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error creating profile: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to create profile: {error_message}")
+        
+        log_info("User signup successful")
+        return {"success": True}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in signup: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to sign up: {str(e)}"}
+        )
+
+@api_router.post("/admin/reset-password", response_model=AdminResetPasswordResponse)
+async def admin_reset_password(
+    payload: AdminResetPasswordRequest,
+    profile: dict = Depends(get_current_profile)
+):
+    """
+    Admin-only endpoint to reset a user's password
+    This is a backup solution when password reset links don't work
+    """
+    try:
+        # Check if current user is admin
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can reset passwords")
+        
+        log_info(f"Admin password reset requested by {profile.get('email')} for {payload.email}")
+        
+        # Validate input
+        if not payload.email or not payload.new_password:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Email and new password are required."}
+            )
+        
+        if len(payload.new_password) < 6:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Password must be at least 6 characters long."}
+            )
+        
+        email = payload.email.strip().lower()
+        
+        # Get admin client
+        admin_supabase = get_supabase_admin_client()
+        
+        # Find user by email in profiles table
+        profile_response = admin_supabase.table("profiles").select("id").eq("email", email).maybe_single().execute()
+        
+        if profile_response is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "User not found."}
+            )
+        
+        if hasattr(profile_response, 'error') and profile_response.error:
+            error = profile_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error finding user: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+        
+        if not hasattr(profile_response, 'data') or not profile_response.data:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "User not found."}
+            )
+        
+        user_id = profile_response.data.get("id")
+        if not user_id:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "User ID not found."}
+            )
+        
+        # Reset password using Supabase Admin API
+        SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+        SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(status_code=500, detail="Supabase configuration missing")
+        
+        # Update user password via Admin API
+        auth_url = f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}"
+        headers = {
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        user_data = {
+            "password": payload.new_password,
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.put(auth_url, json=user_data, headers=headers, timeout=30.0)
+            
+            if response.status_code not in [200, 201]:
+                error_text = response.text
+                log_error(f"Failed to reset password: {response.status_code} - {error_text}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": f"Failed to reset password: {error_text}"}
+                )
+        
+        log_info(f"Password reset successful for {email}")
+        return {"success": True}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in admin_reset_password: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to reset password: {str(e)}"}
+        )
+
+@api_router.post("/admin/users/approve", response_model=ApproveUserResponse)
+async def approve_user(
+    payload: ApproveUserRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Approve a user and assign them a role (teacher or admin)
+    Migrated from TypeScript approveUserAsRole Server Action
+    """
+    try:
+        # Check if current user is admin
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can approve users")
+        
+        # Check if trying to approve self
+        if profile.get("id") == payload.profileId:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Cannot approve yourself."}
+            )
+        
+        log_info(f"Admin {profile.get('email')} approving user {payload.profileId} as {payload.role}")
+        
+        # Normalize role
+        normalized_role = "admin" if payload.role == "admin" else "teacher"
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # If approving as teacher, validate and create section/teacher_sections
+        if normalized_role == "teacher":
+            # Get teacher profile to check grade/section
+            teacher_response = admin_supabase.table("profiles").select("grade,section,room_number").eq("id", payload.profileId).maybe_single().execute()
+            
+            if teacher_response is None:
+                raise HTTPException(status_code=404, detail="User not found")
+            if hasattr(teacher_response, 'error') and teacher_response.error:
+                error = teacher_response.error
+                error_message = getattr(error, 'message', str(error)) if error else str(error)
+                log_error(f"Supabase error fetching teacher: {error_message}")
+                raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+            if not hasattr(teacher_response, 'data') or not teacher_response.data:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            teacher = teacher_response.data
+            grade = teacher.get("grade")
+            section = teacher.get("section")
+            room_number = teacher.get("room_number")
+            
+            if not grade or not section or not room_number:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Teacher grade/section is missing."}
+                )
+            
+            # Get current school year
+            settings_response = admin_supabase.table("system_settings").select("current_school_year").eq("id", 1).execute()
+            
+            if settings_response is None:
+                raise HTTPException(status_code=500, detail="Supabase returned None for settings query")
+            if hasattr(settings_response, 'error') and settings_response.error:
+                error = settings_response.error
+                error_message = getattr(error, 'message', str(error)) if error else str(error)
+                log_error(f"Supabase error fetching settings: {error_message}")
+                raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+            if not hasattr(settings_response, 'data') or not settings_response.data:
+                raise HTTPException(status_code=500, detail="Supabase response missing data for settings")
+            
+            settings_data = settings_response.data
+            if isinstance(settings_data, list) and len(settings_data) > 0:
+                current_school_year = settings_data[0].get("current_school_year", "2025-2026")
+            elif isinstance(settings_data, dict):
+                current_school_year = settings_data.get("current_school_year", "2025-2026")
+            else:
+                current_school_year = "2025-2026"
+            
+            # Check if section exists
+            section_response = admin_supabase.table("sections").select("id,room_number").eq("grade", grade).eq("section", section).eq("school_year", current_school_year).maybe_single().execute()
+            
+            section_id = None
+            if section_response is None:
+                log_warning("Section not found, creating new section")
+            elif hasattr(section_response, 'error') and section_response.error:
+                error = section_response.error
+                error_message = getattr(error, 'message', str(error)) if error else str(error)
+                log_error(f"Supabase error checking section: {error_message}")
+                raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+            elif hasattr(section_response, 'data') and section_response.data is not None:
+                existing_section = section_response.data
+                existing_room = existing_section.get("room_number")
+                if existing_room and room_number and existing_room != room_number:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Room number mismatch for this grade and section. Please verify."}
+                    )
+                section_id = existing_section.get("id")
+            
+            # Create section if it doesn't exist
+            if not section_id:
+                insert_section_response = admin_supabase.table("sections").insert({
+                    "grade": grade,
+                    "section": section,
+                    "room_number": room_number,
+                    "school_year": current_school_year,
+                }).execute()
+                
+                if insert_section_response is None:
+                    raise HTTPException(status_code=500, detail="Supabase returned None for section insert")
+                if hasattr(insert_section_response, 'error') and insert_section_response.error:
+                    error = insert_section_response.error
+                    error_message = getattr(error, 'message', str(error)) if error else str(error)
+                    log_error(f"Supabase error creating section: {error_message}")
+                    raise HTTPException(status_code=500, detail=f"Failed to create section: {error_message}")
+                
+                section_data = insert_section_response.data
+                if isinstance(section_data, list) and len(section_data) > 0:
+                    section_id = section_data[0].get("id")
+                elif isinstance(section_data, dict):
+                    section_id = section_data.get("id")
+            
+            if not section_id:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": "Unable to create section for this teacher."}
+                )
+            
+            # Create teacher_sections entry
+            teacher_sections_response = admin_supabase.table("teacher_sections").upsert(
+                {
+                    "teacher_id": payload.profileId,
+                    "section_id": section_id,
+                },
+                {
+                    "on_conflict": "teacher_id,section_id"
+                }
+            ).execute()
+            
+            if teacher_sections_response is None:
+                log_warning("Supabase returned None for teacher_sections upsert, but proceeding")
+            elif hasattr(teacher_sections_response, 'error') and teacher_sections_response.error:
+                error = teacher_sections_response.error
+                error_message = getattr(error, 'message', str(error)) if error else str(error)
+                log_warning(f"Warning: Supabase error upserting teacher_sections: {error_message}")
+        
+        # Update profile: approve, activate, and set role
+        update_data = {
+            "is_approved": True,
+            "is_active": True,
+            "role": normalized_role,
+        }
+        
+        log_info(f"Updating profile {payload.profileId} with: {update_data}")
+        
+        profile_update_response = admin_supabase.table("profiles").update(update_data).eq("id", payload.profileId).execute()
+        
+        if profile_update_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for profile update")
+        if hasattr(profile_update_response, 'error') and profile_update_response.error:
+            error = profile_update_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error updating profile: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to approve user: {error_message}")
+        
+        log_info(f"User {payload.profileId} approved successfully as {normalized_role}")
+        return {"success": "User approved."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in approve_user: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to approve user: {str(e)}"}
+        )
+
+@api_router.post("/admin/users/toggle-active", response_model=ToggleUserActiveResponse)
+async def toggle_user_active(
+    payload: ToggleUserActiveRequest,
+    profile: dict = Depends(get_current_profile)
+):
+    """
+    Toggle a user's active status (activate/deactivate)
+    Migrated from TypeScript toggleUserActiveStatus Server Action
+    """
+    try:
+        # Check if current user is admin
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can toggle user status")
+        
+        # Check if trying to change own status
+        if profile.get("id") == payload.profileId:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Cannot change your own status."}
+            )
+        
+        log_info(f"Admin {profile.get('email')} toggling user {payload.profileId} active status to {payload.isActive}")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        update_response = admin_supabase.table("profiles").update({"is_active": payload.isActive}).eq("id", payload.profileId).execute()
+        
+        if update_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for profile update")
+        if hasattr(update_response, 'error') and update_response.error:
+            error = update_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error updating profile: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to update user status: {error_message}")
+        
+        log_info(f"User {payload.profileId} active status updated to {payload.isActive}")
+        return {"success": "Status updated."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in toggle_user_active: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to update user status: {str(e)}"}
+        )
+
+@api_router.post("/admin/users/update-role", response_model=UpdateUserRoleResponse)
+async def update_user_role(
+    payload: UpdateUserRoleRequest,
+    profile: dict = Depends(get_current_profile)
+):
+    """
+    Update a user's role (teacher or admin)
+    Migrated from TypeScript updateUserRole Server Action
+    """
+    try:
+        # Check if current user is admin
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can update user roles")
+        
+        # Check if trying to change own role
+        if profile.get("id") == payload.profileId:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Cannot change your own role."}
+            )
+        
+        # Validate role
+        if payload.role not in ["teacher", "admin"]:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid role. Must be 'teacher' or 'admin'."}
+            )
+        
+        log_info(f"Admin {profile.get('email')} updating user {payload.profileId} role to {payload.role}")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        update_response = admin_supabase.table("profiles").update({"role": payload.role}).eq("id", payload.profileId).execute()
+        
+        if update_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for profile update")
+        if hasattr(update_response, 'error') and update_response.error:
+            error = update_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error updating profile: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to update user role: {error_message}")
+        
+        log_info(f"User {payload.profileId} role updated to {payload.role}")
+        return {"success": "Role updated."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in update_user_role: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to update user role: {str(e)}"}
+        )
+
+@api_router.get("/admin/users", response_model=UsersListResponse)
+async def get_all_users(
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Get all users (admin only)
+    This endpoint uses the admin client to bypass RLS and fetch all profiles
+    """
+    try:
+        # Check if current user is admin
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can view all users")
+        
+        log_info(f"Admin {profile.get('email')} fetching all users")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Fetch all profiles
+        response = admin_supabase.table("profiles").select(
+            "id,full_name,email,role,grade,section,mobile,is_active,is_approved,created_at"
+        ).order("created_at", desc=True).execute()
+        
+        if response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for users query")
+        if hasattr(response, 'error') and response.error:
+            error = response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching users: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch users: {error_message}")
+        
+        users_data = response.data if hasattr(response, 'data') else []
+        
+        # Convert to response model
+        users = [
+            UserResponse(
+                id=user.get("id"),
+                full_name=user.get("full_name"),
+                email=user.get("email", ""),
+                role=user.get("role", "teacher"),
+                grade=user.get("grade"),
+                section=user.get("section"),
+                mobile=user.get("mobile"),
+                is_active=user.get("is_active", False),
+                is_approved=user.get("is_approved", False),
+                created_at=user.get("created_at", ""),
+            )
+            for user in users_data
+        ]
+        
+        log_info(f"Returning {len(users)} users")
+        return {"users": users}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in get_all_users: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to fetch users: {str(e)}"}
+        )
+
+@api_router.get("/admin/sections", response_model=SectionsListResponse)
+async def get_all_sections(
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Get all sections (admin only)
+    This endpoint uses the admin client to bypass RLS and fetch all sections
+    """
+    try:
+        # Check if current user is admin
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can view all sections")
+        
+        log_info(f"Admin {profile.get('email')} fetching all sections")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Fetch all sections, ordered by grade
+        response = admin_supabase.table("sections").select(
+            "id,grade,section"
+        ).order("grade", desc=False).execute()
+        
+        if response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for sections query")
+        if hasattr(response, 'error') and response.error:
+            error = response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching sections: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch sections: {error_message}")
+        
+        sections_data = response.data if hasattr(response, 'data') else []
+        
+        # Convert to response model
+        sections = [
+            SectionResponse(
+                id=section.get("id"),
+                grade=section.get("grade", ""),
+                section=section.get("section", ""),
+            )
+            for section in sections_data
+        ]
+        
+        log_info(f"Returning {len(sections)} sections")
+        return {"sections": sections}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in get_all_sections: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to fetch sections: {str(e)}"}
+        )
+
+@api_router.get("/admin/attendance", response_model=AttendanceListResponse)
+async def get_attendance_for_section(
+    section_id: str,
+    date: str,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Get attendance for a specific section and date (admin only)
+    This endpoint uses the admin client to bypass RLS
+    """
+    try:
+        # Check if current user is admin
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can view attendance")
+        
+        log_info(f"Admin {profile.get('email')} fetching attendance for section {section_id} on {date}")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Fetch attendance with student details
+        response = admin_supabase.table("attendance").select(
+            "status,comments,students!inner(full_name,student_identifier)"
+        ).eq("attendance_date", date).eq("section_id", section_id).execute()
+        
+        if response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for attendance query")
+        if hasattr(response, 'error') and response.error:
+            error = response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching attendance: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch attendance: {error_message}")
+        
+        attendance_data = response.data if hasattr(response, 'data') else []
+        
+        # Convert to response model
+        entries = []
+        statistics = {
+            "present": 0,
+            "absent": 0,
+            "late": 0,
+            "left_early": 0,
+        }
+        
+        for entry in attendance_data:
+            student = entry.get("students")
+            if isinstance(student, list) and len(student) > 0:
+                student = student[0]
+            elif not student:
+                continue
+            
+            status = entry.get("status", "")
+            entries.append(
+                AttendanceEntryResponse(
+                    student_name=student.get("full_name", "Unknown"),
+                    student_identifier=student.get("student_identifier"),
+                    status=status,
+                    comments=entry.get("comments"),
+                )
+            )
+            
+            # Update statistics
+            if status in statistics:
+                statistics[status] = statistics.get(status, 0) + 1
+        
+        log_info(f"Returning {len(entries)} attendance entries")
+        return {
+            "entries": entries,
+            "statistics": statistics,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in get_attendance_for_section: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to fetch attendance: {str(e)}"}
+        )
+
+@api_router.get("/admin/archive/settings", response_model=ArchiveSettingsResponse)
+async def get_archive_settings(
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Get archive settings (admin only)
+    """
+    try:
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can view archive settings")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        response = admin_supabase.table("system_settings").select(
+            "current_school_year,archive_status,archive_path"
+        ).eq("id", 1).maybe_single().execute()
+        
+        if response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for settings query")
+        if hasattr(response, 'error') and response.error:
+            error = response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching settings: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch settings: {error_message}")
+        
+        settings_data = response.data if hasattr(response, 'data') else {}
+        
+        return ArchiveSettingsResponse(
+            current_school_year=settings_data.get("current_school_year", ""),
+            archive_status=settings_data.get("archive_status", "IDLE"),
+            archive_path=settings_data.get("archive_path"),
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in get_archive_settings: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to fetch archive settings: {str(e)}"}
+        )
+
+@api_router.post("/admin/archive/prepare", response_model=PrepareArchiveResponse)
+async def prepare_archive(
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Prepare archive by exporting students and attendance to CSV and uploading to storage (admin only)
+    """
+    try:
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can prepare archives")
+        
+        log_info(f"Admin {profile.get('email')} preparing archive")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Get system settings
+        settings_response = admin_supabase.table("system_settings").select(
+            "current_school_year,archive_status"
+        ).eq("id", 1).maybe_single().execute()
+        
+        if settings_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for settings query")
+        if hasattr(settings_response, 'error') and settings_response.error:
+            error = settings_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching settings: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch settings: {error_message}")
+        
+        settings_data = settings_response.data if hasattr(settings_response, 'data') else {}
+        
+        if not settings_data:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "System settings not found."}
+            )
+        
+        if settings_data.get("archive_status") != "IDLE":
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Archive preparation already in progress."}
+            )
+        
+        school_year = settings_data.get("current_school_year")
+        
+        # Fetch students
+        students_response = admin_supabase.table("students").select(
+            "id,full_name,section_id,school_year"
+        ).eq("school_year", school_year).execute()
+        
+        if students_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for students query")
+        if hasattr(students_response, 'error') and students_response.error:
+            error = students_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching students: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch students: {error_message}")
+        
+        students_data = students_response.data if hasattr(students_response, 'data') else []
+        
+        # Fetch attendance
+        attendance_response = admin_supabase.table("attendance").select(
+            "attendance_date,status,comments,school_year,students(full_name,section_id)"
+        ).eq("school_year", school_year).execute()
+        
+        if attendance_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for attendance query")
+        if hasattr(attendance_response, 'error') and attendance_response.error:
+            error = attendance_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching attendance: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch attendance: {error_message}")
+        
+        attendance_data = attendance_response.data if hasattr(attendance_response, 'data') else []
+        
+        # Convert to CSV
+        def to_csv(data):
+            if not data:
+                return ""
+            output = io.StringIO()
+            if isinstance(data, list) and len(data) > 0:
+                writer = csv.DictWriter(output, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)
+            return output.getvalue()
+        
+        # Process attendance data
+        attendance_rows = []
+        for row in attendance_data:
+            student = row.get("students")
+            if isinstance(student, list) and len(student) > 0:
+                student = student[0]
+            elif not student:
+                student = {}
+            
+            attendance_rows.append({
+                "attendance_date": row.get("attendance_date", ""),
+                "status": row.get("status", ""),
+                "comments": row.get("comments") or "",
+                "school_year": row.get("school_year", ""),
+                "student_name": student.get("full_name", ""),
+                "section_id": student.get("section_id", ""),
+            })
+        
+        students_csv = to_csv(students_data)
+        attendance_csv = to_csv(attendance_rows)
+        
+        # Upload to storage
+        base_path = f"staging/{school_year}"
+        
+        students_upload = admin_supabase.storage.from_("ITA_attendance_archives").upload(
+            f"{base_path}/students.csv",
+            students_csv.encode('utf-8'),
+            file_options={"content-type": "text/csv", "upsert": True}
+        )
+        
+        if hasattr(students_upload, 'error') and students_upload.error:
+            error = students_upload.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error uploading students CSV: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to upload students CSV: {error_message}")
+        
+        attendance_upload = admin_supabase.storage.from_("ITA_attendance_archives").upload(
+            f"{base_path}/attendance.csv",
+            attendance_csv.encode('utf-8'),
+            file_options={"content-type": "text/csv", "upsert": True}
+        )
+        
+        if hasattr(attendance_upload, 'error') and attendance_upload.error:
+            error = attendance_upload.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error uploading attendance CSV: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to upload attendance CSV: {error_message}")
+        
+        # Update system settings
+        update_response = admin_supabase.table("system_settings").update({
+            "archive_status": "ARCHIVE_READY",
+            "archive_path": base_path
+        }).eq("id", 1).execute()
+        
+        if update_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for settings update")
+        if hasattr(update_response, 'error') and update_response.error:
+            error = update_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error updating settings: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to update settings: {error_message}")
+        
+        log_info("Archive prepared successfully")
+        return {"success": "Archive prepared."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in prepare_archive: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to prepare archive: {str(e)}"}
+        )
+
+@api_router.post("/admin/archive/purge", response_model=PurgeArchiveResponse)
+async def purge_archive(
+    payload: PurgeArchiveRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Purge database for current school year (admin only)
+    """
+    try:
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can purge archives")
+        
+        if not payload.confirmed:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Please verify the data before purging."}
+            )
+        
+        log_info(f"Admin {profile.get('email')} purging archive")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Get system settings
+        settings_response = admin_supabase.table("system_settings").select(
+            "current_school_year,archive_status"
+        ).eq("id", 1).maybe_single().execute()
+        
+        if settings_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for settings query")
+        if hasattr(settings_response, 'error') and settings_response.error:
+            error = settings_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching settings: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch settings: {error_message}")
+        
+        settings_data = settings_response.data if hasattr(settings_response, 'data') else {}
+        
+        if not settings_data or settings_data.get("archive_status") != "ARCHIVE_READY":
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Archive is not ready for purge."}
+            )
+        
+        school_year = settings_data.get("current_school_year")
+        
+        # Update status to PURGING
+        update_status_response = admin_supabase.table("system_settings").update({
+            "archive_status": "PURGING"
+        }).eq("id", 1).execute()
+        
+        if update_status_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for status update")
+        if hasattr(update_status_response, 'error') and update_status_response.error:
+            error = update_status_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error updating status: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to update status: {error_message}")
+        
+        # Delete data
+        delete_attendance_response = admin_supabase.table("attendance").delete().eq("school_year", school_year).execute()
+        if hasattr(delete_attendance_response, 'error') and delete_attendance_response.error:
+            log_warning(f"Warning: Error deleting attendance: {delete_attendance_response.error}")
+        
+        delete_students_response = admin_supabase.table("students").delete().eq("school_year", school_year).execute()
+        if hasattr(delete_students_response, 'error') and delete_students_response.error:
+            log_warning(f"Warning: Error deleting students: {delete_students_response.error}")
+        
+        delete_sections_response = admin_supabase.table("sections").delete().eq("school_year", school_year).execute()
+        if hasattr(delete_sections_response, 'error') and delete_sections_response.error:
+            log_warning(f"Warning: Error deleting sections: {delete_sections_response.error}")
+        
+        # Update status back to IDLE
+        final_update_response = admin_supabase.table("system_settings").update({
+            "archive_status": "IDLE",
+            "archive_path": None
+        }).eq("id", 1).execute()
+        
+        if final_update_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for final update")
+        if hasattr(final_update_response, 'error') and final_update_response.error:
+            error = final_update_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error final update: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to finalize purge: {error_message}")
+        
+        log_info("Archive purged successfully")
+        return {"success": "Database purged for current school year."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in purge_archive: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to purge archive: {str(e)}"}
+        )
+
+@api_router.get("/admin/archive/download-urls", response_model=DownloadLinksResponse)
+async def get_download_urls(
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Get signed URLs for archive download links (admin only)
+    """
+    try:
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can get download URLs")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Get system settings
+        settings_response = admin_supabase.table("system_settings").select(
+            "archive_status,archive_path"
+        ).eq("id", 1).maybe_single().execute()
+        
+        if settings_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for settings query")
+        if hasattr(settings_response, 'error') and settings_response.error:
+            error = settings_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error fetching settings: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch settings: {error_message}")
+        
+        settings_data = settings_response.data if hasattr(settings_response, 'data') else {}
+        
+        links = []
+        
+        if settings_data.get("archive_status") == "ARCHIVE_READY" and settings_data.get("archive_path"):
+            archive_path = settings_data.get("archive_path")
+            
+            # Get signed URLs
+            students_url_response = admin_supabase.storage.from_("ITA_attendance_archives").create_signed_url(
+                f"{archive_path}/students.csv",
+                3600
+            )
+            
+            attendance_url_response = admin_supabase.storage.from_("ITA_attendance_archives").create_signed_url(
+                f"{archive_path}/attendance.csv",
+                3600
+            )
+            
+            if hasattr(students_url_response, 'signed_url') and students_url_response.signed_url:
+                links.append(DownloadLinkResponse(label="Students CSV", url=students_url_response.signed_url))
+            elif hasattr(students_url_response, 'data') and students_url_response.data and students_url_response.data.get("signedUrl"):
+                links.append(DownloadLinkResponse(label="Students CSV", url=students_url_response.data["signedUrl"]))
+            
+            if hasattr(attendance_url_response, 'signed_url') and attendance_url_response.signed_url:
+                links.append(DownloadLinkResponse(label="Attendance CSV", url=attendance_url_response.signed_url))
+            elif hasattr(attendance_url_response, 'data') and attendance_url_response.data and attendance_url_response.data.get("signedUrl"):
+                links.append(DownloadLinkResponse(label="Attendance CSV", url=attendance_url_response.data["signedUrl"]))
+        
+        return {"links": links}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in get_download_urls: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to get download URLs: {str(e)}"}
         )
 
 # Mount the API router to the app

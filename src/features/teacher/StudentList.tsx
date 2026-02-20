@@ -1,9 +1,5 @@
 import { useState, useTransition } from "react";
-// TODO: Convert to API call to /api/attendance
-// import { updateStudent } from "@/app/(dashboard)/attendance/actions";
-const updateStudent = async (params: any): Promise<{ success?: string; error?: string }> => {
-  return { error: "Not implemented - convert to API call" };
-};
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,9 +27,78 @@ interface Student {
 interface StudentListProps {
   students: Student[];
   sectionId: string;
+  onStudentUpdated?: () => void | Promise<void>;
 }
 
-export function StudentList({ students, sectionId }: StudentListProps) {
+const supabase = createSupabaseBrowserClient();
+
+const updateStudent = async (params: {
+  studentId: string;
+  studentIdentifier: string;
+  fullName: string;
+  sectionId: string;
+}): Promise<{ success?: string; error?: string }> => {
+  try {
+    // Get JWT token from Supabase session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { error: "Not authenticated. Please sign in again." };
+    }
+
+    // Call Python API
+    const response = await fetch("/api/students", {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        studentId: params.studentId,
+        studentIdentifier: params.studentIdentifier,
+        fullName: params.fullName,
+        sectionId: params.sectionId,
+      }),
+    });
+
+    // Check if response has content before parsing
+    const contentType = response.headers.get("content-type");
+    const responseText = await response.text();
+
+    // Handle empty responses
+    if (!responseText || responseText.trim() === "") {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.` 
+      };
+    }
+
+    // Check if response is JSON
+    if (!contentType || !contentType.includes("application/json")) {
+      return { 
+        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}` 
+      };
+    }
+
+    // Parse JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      return { 
+        error: `Failed to parse server response: ${responseText.substring(0, 200)}` 
+      };
+    }
+
+    if (!response.ok) {
+      return { error: data.detail || data.error || "Failed to update student." };
+    }
+
+    return { success: data.success || "Student updated." };
+  } catch (e: any) {
+    return { error: e.message || "An unexpected error occurred." };
+  }
+};
+
+export function StudentList({ students, sectionId, onStudentUpdated }: StudentListProps) {
   const [isPending, startTransition] = useTransition();
   const [editStudentId, setEditStudentId] = useState<string | null>(null);
   const [editStudentIdentifier, setEditStudentIdentifier] = useState("");
@@ -61,12 +126,16 @@ export function StudentList({ students, sectionId }: StudentListProps) {
         studentIdentifier: editStudentIdentifier.trim(),
         fullName: editStudentName.trim(),
         sectionId,
-      }).then((result) => {
+      }).then(async (result) => {
         if (result?.error) {
           toast.error(result.error);
         } else {
           toast.success(result?.success ?? "Student updated successfully!");
           setEditStudentId(null);
+          // Refresh student list
+          if (onStudentUpdated) {
+            await onStudentUpdated();
+          }
         }
       });
     });

@@ -326,3 +326,4 @@ fetch('/api/attendance', {
 
 This will at least tell you if the endpoint is reachable (you'll get a 401 or 400, which is expected).
 
+

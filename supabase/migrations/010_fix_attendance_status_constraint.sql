@@ -22,3 +22,4 @@ alter table attendance
   check (status in ('present','absent','late','left_early'));
 
 
+

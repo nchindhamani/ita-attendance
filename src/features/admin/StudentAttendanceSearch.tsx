@@ -1,6 +1,4 @@
-"use client";
-
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 import { useTransition } from "react";
 import { Input } from "@/components/ui/input";
 
@@ -17,14 +15,14 @@ export function StudentAttendanceSearch({
   availableYears,
   hasError: boolean = false, // Currently unused but kept for future error display
 }: StudentAttendanceSearchProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isPending, startTransition] = useTransition();
 
   const handleStudentIdChange = (value: string) => {
     const trimmed = value.trim();
     if (trimmed && trimmed !== initialStudentId) {
       startTransition(() => {
-        router.push(`/admin/student-attendance?studentId=${trimmed}`);
+        navigate(`/admin/student-attendance?studentId=${trimmed}`);
       });
     }
   };
@@ -32,7 +30,7 @@ export function StudentAttendanceSearch({
   const handleYearChange = (value: string) => {
     if (value && initialStudentId) {
       startTransition(() => {
-        router.push(
+        navigate(
           `/admin/student-attendance?studentId=${initialStudentId}&year=${value}`
         );
       });

@@ -1,8 +1,33 @@
 import { useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+
+const supabase = createSupabaseBrowserClient()
 
 export default function HomePage() {
+  const navigate = useNavigate()
+
+  // Check for hash fragments (from password reset or email verification links)
+  useEffect(() => {
+    const hash = window.location.hash
+    if (hash && hash.includes('access_token')) {
+      // Parse hash fragments
+      const hashParams = new URLSearchParams(hash.substring(1))
+      const type = hashParams.get('type')
+      const accessToken = hashParams.get('access_token')
+      const refreshToken = hashParams.get('refresh_token')
+
+      if (type === 'recovery' && accessToken && refreshToken) {
+        // This is a password reset link - redirect to callback handler
+        navigate('/auth/callback', { replace: true })
+      } else if (type === 'email' && accessToken && refreshToken) {
+        // This is an email verification link - redirect to callback handler
+        navigate('/auth/callback', { replace: true })
+      }
+    }
+  }, [navigate])
+
   // Smoke Test 1: Test Python API connection
   useEffect(() => {
     fetch('/api/test')

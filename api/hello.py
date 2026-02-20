@@ -8,3 +8,4 @@ def handler(request):
         "body": '{"message": "Python function is working!", "path": "' + str(request.get("path", "/")) + '"}'
     }
 
+
