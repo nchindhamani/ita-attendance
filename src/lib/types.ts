@@ -9,6 +9,8 @@ export interface Profile {
   email: string | null;
   full_name: string | null;
   role: Role;
+  grade?: string | null;
+  section?: string | null;
   is_active: boolean;
   is_approved: boolean;
 }

@@ -155,7 +155,7 @@ export function TeacherAttendanceEditor({
     }
   }, [initialEntries, attendanceDate, existing, teachers, entries]);
 
-  const updateEntry = (teacherId: string, updates: { status?: string; comments?: string }) => {
+  const updateEntry = (teacherId: string, updates: { status?: AttendanceStatus; comments?: string }) => {
     setEntries((prev) =>
       prev.map((entry) =>
         entry.teacherId === teacherId ? { ...entry, ...updates } : entry
@@ -185,28 +185,28 @@ export function TeacherAttendanceEditor({
       return;
     }
     console.log('Saving teacher attendance:', { attendanceDate, schoolYear, entries });
-    startTransition(async () => {
-      const result = await saveTeacherAttendance({
+    startTransition(() => {
+      saveTeacherAttendance({
         attendanceDate,
         schoolYear,
         entries,
-      });
-      
-      console.log('Save result:', result);
-      
-      if (result?.error) {
-        toast.error(result.error);
-      } else {
-        toast.success(result?.success ?? "Attendance saved.");
-        // Refresh attendance data to ensure it's loaded from database
-        if (onAttendanceSaved) {
-          // Wait a bit for database to update, then refresh
-          setTimeout(async () => {
-            console.log('Refreshing attendance after save...');
-            await onAttendanceSaved();
-          }, 500);
+      }).then((result) => {
+        console.log('Save result:', result);
+        
+        if (result?.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(result?.success ?? "Attendance saved.");
+          // Refresh attendance data to ensure it's loaded from database
+          if (onAttendanceSaved) {
+            // Wait a bit for database to update, then refresh
+            setTimeout(() => {
+              console.log('Refreshing attendance after save...');
+              onAttendanceSaved();
+            }, 500);
+          }
         }
-      }
+      });
     });
   };
 

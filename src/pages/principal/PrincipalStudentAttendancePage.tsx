@@ -177,7 +177,12 @@ export default function PrincipalStudentAttendancePage() {
         </p>
       </div>
 
-      <StudentAttendanceSearch />
+      <StudentAttendanceSearch
+        initialStudentId={studentIdInput}
+        initialYear={yearInput}
+        availableYears={availableYears}
+        basePath="/principal/student-attendance"
+      />
 
       {errorMessage && (
         <Card>

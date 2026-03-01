@@ -699,7 +699,7 @@ export default function AdminUserDetailPage() {
                               onClick={(e) => {
                                 e.stopPropagation()
                                 // Prevent unchecking the current role
-                                if (isCurrentRole && !e.target.checked) {
+                                if (isCurrentRole && !(e.target as HTMLInputElement).checked) {
                                   e.preventDefault()
                                 }
                               }}
