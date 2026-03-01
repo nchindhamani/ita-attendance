@@ -7,6 +7,7 @@ interface StudentAttendanceSearchProps {
   initialYear?: string;
   availableYears: string[];
   hasError?: boolean;
+  basePath?: string; // Allow custom base path for navigation
 }
 
 export function StudentAttendanceSearch({
@@ -14,6 +15,7 @@ export function StudentAttendanceSearch({
   initialYear = "",
   availableYears,
   hasError: boolean = false, // Currently unused but kept for future error display
+  basePath = "/admin/student-attendance", // Default to admin path
 }: StudentAttendanceSearchProps) {
   const navigate = useNavigate();
   const [isPending, startTransition] = useTransition();
@@ -22,7 +24,7 @@ export function StudentAttendanceSearch({
     const trimmed = value.trim();
     if (trimmed && trimmed !== initialStudentId) {
       startTransition(() => {
-        navigate(`/admin/student-attendance?studentId=${trimmed}`);
+        navigate(`${basePath}?studentId=${trimmed}`);
       });
     }
   };
@@ -31,7 +33,7 @@ export function StudentAttendanceSearch({
     if (value && initialStudentId) {
       startTransition(() => {
         navigate(
-          `/admin/student-attendance?studentId=${initialStudentId}&year=${value}`
+          `${basePath}?studentId=${initialStudentId}&year=${value}`
         );
       });
     }

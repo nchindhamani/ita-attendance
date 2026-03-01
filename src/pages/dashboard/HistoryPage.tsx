@@ -91,7 +91,7 @@ export default function HistoryPage() {
 
         // Fetch attendance for the selected date
         const { data: attendance, error: attendanceError } = await supabase
-          .from('attendance')
+          .from('student_attendance')
           .select('status,comments,students!inner(full_name,student_identifier)')
           .eq('attendance_date', selectedDate)
           .eq('section_id', sectionId)

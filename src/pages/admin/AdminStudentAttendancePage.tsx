@@ -19,6 +19,12 @@ interface AttendanceRecord {
   attendance_date: string
   status: string
   comments: string | null
+  section_id?: string | null
+}
+
+interface HSCPSection {
+  id: string
+  section: string
 }
 
 export default function AdminStudentAttendancePage() {
@@ -36,6 +42,8 @@ export default function AdminStudentAttendancePage() {
   const [sectionInfo, setSectionInfo] = useState<{ grade: string; section: string } | null>(null)
   const [teacherName, setTeacherName] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [hscpSections, setHscpSections] = useState<HSCPSection[]>([])
+  const [selectedHscpTab, setSelectedHscpTab] = useState<string>('Reading')
 
   // Fetch available years when studentId is provided
   useEffect(() => {
@@ -54,7 +62,7 @@ export default function AdminStudentAttendancePage() {
 
       try {
         const { data: yearRows, error: yearError } = await supabase
-          .from('attendance')
+          .from('student_attendance')
           .select('school_year')
           .eq('student_identifier', studentIdNum)
           .order('school_year', { ascending: false })
@@ -92,6 +100,8 @@ export default function AdminStudentAttendancePage() {
       setAttendance([])
       setSectionInfo(null)
       setTeacherName(null)
+      setHscpSections([])
+      setSelectedHscpTab('Reading')
       return
     }
 
@@ -102,6 +112,8 @@ export default function AdminStudentAttendancePage() {
       setAttendance([])
       setSectionInfo(null)
       setTeacherName(null)
+      setHscpSections([])
+      setSelectedHscpTab('Reading')
 
       const studentIdNum = Number(studentIdInput)
       if (!Number.isInteger(studentIdNum)) {
@@ -147,20 +159,6 @@ export default function AdminStudentAttendancePage() {
 
         setStudent(studentData as Student)
 
-        // Fetch attendance records
-        const { data: attendanceData, error: attendanceError } = await supabase
-          .from('attendance')
-          .select('attendance_date,status,comments')
-          .eq('student_id', studentData.id)
-          .eq('school_year', yearInput)
-          .order('attendance_date', { ascending: false })
-
-        if (attendanceError) {
-          console.error('Error fetching attendance:', attendanceError)
-        } else {
-          setAttendance(attendanceData ?? [])
-        }
-
         // Fetch section information
         if (studentData.section_id) {
           const { data: section, error: sectionError } = await supabase
@@ -177,6 +175,30 @@ export default function AdminStudentAttendancePage() {
                 grade: sectionData.grade,
                 section: sectionData.section,
               })
+
+              // Check if this is an HSCP grade
+              const isHSCPGrade = sectionData.grade && sectionData.grade.toUpperCase().startsWith('HSCP')
+              
+              if (isHSCPGrade) {
+                // Fetch all HSCP sections for this grade (Reading, Writing, Conversation)
+                const { data: allSections, error: sectionsError } = await supabase
+                  .from('sections')
+                  .select('id,section')
+                  .eq('grade', sectionData.grade)
+                  .eq('school_year', yearInput)
+                  .in('section', ['Reading', 'Writing', 'Conversation'])
+                  .order('section', { ascending: true })
+
+                if (!sectionsError && allSections) {
+                  setHscpSections(allSections as HSCPSection[])
+                  // Set default tab to first section if available
+                  if (allSections.length > 0) {
+                    setSelectedHscpTab(allSections[0].section)
+                  }
+                }
+              } else {
+                setHscpSections([])
+              }
 
               // Fetch teacher information
               const { data: teacherSection } = await supabase
@@ -202,6 +224,20 @@ export default function AdminStudentAttendancePage() {
               }
             }
           }
+        }
+
+        // Fetch attendance records (include section_id for HSCP filtering)
+        const { data: attendanceData, error: attendanceError } = await supabase
+          .from('student_attendance')
+          .select('attendance_date,status,comments,section_id')
+          .eq('student_id', studentData.id)
+          .eq('school_year', yearInput)
+          .order('attendance_date', { ascending: false })
+
+        if (attendanceError) {
+          console.error('Error fetching attendance:', attendanceError)
+        } else {
+          setAttendance(attendanceData ?? [])
         }
       } catch (err) {
         setErrorMessage(err instanceof Error ? err.message : 'An error occurred')
@@ -273,44 +309,113 @@ export default function AdminStudentAttendancePage() {
             </div>
           </div>
 
-          {attendance.length > 0 ? (
+          {attendance.length > 0 || student ? (
             <div className="space-y-4">
               <h4 className="text-xl font-heading font-semibold text-[#0f172a]">
                 Attendance History
               </h4>
-              <div className="space-y-3">
-                {attendance.map((row) => {
-                  const statusColor =
-                    statusColors[row.status as keyof typeof statusColors] ||
-                    'bg-gray-100 text-gray-700'
+              
+              {/* Show tabs for HSCP students */}
+              {hscpSections.length > 0 ? (
+                <div className="space-y-4">
+                  {/* Tab buttons */}
+                  <div className="flex gap-2 border-b border-gray-200">
+                    {hscpSections.map((hscpSection) => (
+                      <button
+                        key={hscpSection.id}
+                        onClick={() => setSelectedHscpTab(hscpSection.section)}
+                        className={`px-4 py-2 font-medium text-sm transition-colors ${
+                          selectedHscpTab === hscpSection.section
+                            ? 'border-b-2 border-[#6366f1] text-[#6366f1]'
+                            : 'text-[#64748b] hover:text-[#0f172a]'
+                        }`}
+                      >
+                        {hscpSection.section}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {/* Filtered attendance for selected tab */}
+                  {(() => {
+                    const selectedSection = hscpSections.find(s => s.section === selectedHscpTab)
+                    const filteredAttendance = selectedSection
+                      ? attendance.filter(a => a.section_id === selectedSection.id)
+                      : []
+                    
+                    return filteredAttendance.length > 0 ? (
+                      <div className="space-y-3">
+                        {filteredAttendance.map((row) => {
+                          const statusColor =
+                            statusColors[row.status as keyof typeof statusColors] ||
+                            'bg-gray-100 text-gray-700'
 
-                  return (
-                    <div
-                      key={row.attendance_date}
-                      className="bg-[#f8f9fa] rounded-[12px] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.1)]"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-base font-medium text-[#0f172a] w-32 flex-shrink-0">
-                          {row.attendance_date}
-                        </span>
-                        <span
-                          className={`px-3 py-1 rounded-[8px] text-sm font-medium capitalize whitespace-nowrap ${statusColor}`}
-                        >
-                          {row.status}
-                        </span>
-                        {row.comments && (
-                          <span className="text-sm text-[#64748b]">{row.comments}</span>
-                        )}
+                          return (
+                            <div
+                              key={`${row.attendance_date}-${row.section_id}`}
+                              className="bg-[#f8f9fa] rounded-[12px] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.1)]"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-base font-medium text-[#0f172a] w-32 flex-shrink-0">
+                                  {row.attendance_date}
+                                </span>
+                                <span
+                                  className={`px-3 py-1 rounded-[8px] text-sm font-medium capitalize whitespace-nowrap ${statusColor}`}
+                                >
+                                  {row.status}
+                                </span>
+                                {row.comments && (
+                                  <span className="text-sm text-[#64748b]">{row.comments}</span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No attendance recorded for {selectedHscpTab} section yet.
+                      </p>
+                    )
+                  })()}
+                </div>
+              ) : (
+                /* Regular attendance display for non-HSCP students */
+                attendance.length > 0 ? (
+                  <div className="space-y-3">
+                    {attendance.map((row) => {
+                      const statusColor =
+                        statusColors[row.status as keyof typeof statusColors] ||
+                        'bg-gray-100 text-gray-700'
+
+                      return (
+                        <div
+                          key={row.attendance_date}
+                          className="bg-[#f8f9fa] rounded-[12px] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.1)]"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-base font-medium text-[#0f172a] w-32 flex-shrink-0">
+                              {row.attendance_date}
+                            </span>
+                            <span
+                              className={`px-3 py-1 rounded-[8px] text-sm font-medium capitalize whitespace-nowrap ${statusColor}`}
+                            >
+                              {row.status}
+                            </span>
+                            {row.comments && (
+                              <span className="text-sm text-[#64748b]">{row.comments}</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No attendance recorded for this student yet.
+                  </p>
+                )
+              )}
             </div>
-          ) : student ? (
-            <p className="text-sm text-muted-foreground">
-              No attendance recorded for this student yet.
-            </p>
           ) : null}
         </div>
       )}

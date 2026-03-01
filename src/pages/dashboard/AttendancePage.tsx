@@ -41,6 +41,7 @@ export default function AttendancePage() {
   const navigate = useNavigate()
   
   const sectionId = searchParams.get('section')
+  const dateParam = searchParams.get('date')
   console.log('Section ID:', sectionId, 'Profile:', profile)
   const [loading, setLoading] = useState(true)
   const [section, setSection] = useState<Section | null>(null)
@@ -48,6 +49,17 @@ export default function AttendancePage() {
   const [existingAttendance, setExistingAttendance] = useState<Record<string, { status: AttendanceStatus; comments?: string | null }>>({})
   const [holiday, setHoliday] = useState<Holiday | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
+
+  // Update URL if date param is missing
+  useEffect(() => {
+    if (!dateParam && sectionId) {
+      const today = formatPacificDate(new Date())
+      const newSearchParams = new URLSearchParams(searchParams)
+      newSearchParams.set('date', today)
+      navigate(`/attendance?${newSearchParams.toString()}`, { replace: true })
+    }
+  }, [dateParam, sectionId, searchParams, navigate])
 
   // Auto-redirect teachers to their assigned section
   useEffect(() => {
@@ -73,12 +85,47 @@ export default function AttendancePage() {
   }, [profile, sectionId, navigate, authLoading])
 
   // Function to fetch students (extracted for reuse)
-  const fetchStudents = async (sectionIdToFetch: string) => {
-    const { data: studentsData, error: studentsError } = await supabase
-      .from('students')
-      .select('id,full_name,student_identifier')
-      .eq('section_id', sectionIdToFetch)
-      .order('full_name', { ascending: true })
+  const fetchStudents = async (sectionToFetch: Section) => {
+    // Check if this is an HSCP grade
+    const isHSCPGrade = sectionToFetch.grade && sectionToFetch.grade.toUpperCase().startsWith('HSCP')
+    
+    let studentsData: Student[] | null = null
+    let studentsError: any = null
+    
+    if (isHSCPGrade) {
+      // For HSCP grades: get all sections of this grade, then get all students from those sections
+      const { data: allSectionsData } = await supabase
+        .from('sections')
+        .select('id')
+        .eq('grade', sectionToFetch.grade)
+        .eq('school_year', sectionToFetch.school_year || '2025-2026')
+      
+      if (allSectionsData && allSectionsData.length > 0) {
+        const sectionIds = allSectionsData.map(s => s.id)
+        const result = await supabase
+          .from('students')
+          .select('id,full_name,student_identifier')
+          .in('section_id', sectionIds)
+          .eq('school_year', sectionToFetch.school_year || '2025-2026')
+          .order('full_name', { ascending: true })
+        
+        studentsData = result.data
+        studentsError = result.error
+      } else {
+        // No sections found, return empty array
+        studentsData = []
+      }
+    } else {
+      // For regular grades: fetch students for this specific section
+      const result = await supabase
+        .from('students')
+        .select('id,full_name,student_identifier')
+        .eq('section_id', sectionToFetch.id)
+        .order('full_name', { ascending: true })
+      
+      studentsData = result.data
+      studentsError = result.error
+    }
 
     if (studentsError) {
       console.error('Failed to load students:', studentsError)
@@ -117,14 +164,12 @@ export default function AttendancePage() {
 
         setSection(sectionData)
 
-        const attendanceDate = formatPacificDate(new Date())
-
         // Check for holiday
         const { data: holidayData } = await supabase
           .from('holidays')
           .select('holiday_date,name')
           .eq('school_year', sectionData.school_year ?? '')
-          .eq('holiday_date', attendanceDate)
+          .eq('holiday_date', selectedDate)
           .maybeSingle()
 
         if (holidayData) {
@@ -132,7 +177,7 @@ export default function AttendancePage() {
         }
 
         // Fetch students
-        const studentsData = await fetchStudents(sectionId)
+        const studentsData = await fetchStudents(sectionData)
         if (studentsData === null) {
           setError('Failed to load students')
           setLoading(false)
@@ -141,13 +186,14 @@ export default function AttendancePage() {
 
         setStudents(studentsData)
 
-        // Fetch existing attendance
+        // Fetch existing attendance for this specific section and selected date
         const studentIds = (studentsData ?? []).map(s => s.id)
         if (studentIds.length > 0) {
           const { data: attendanceData } = await supabase
-            .from('attendance')
+            .from('student_attendance')
             .select('student_id,status,comments')
-            .eq('attendance_date', attendanceDate)
+            .eq('attendance_date', selectedDate)
+            .eq('section_id', sectionId)
             .in('student_id', studentIds)
 
           const existing = (attendanceData ?? []).reduce(
@@ -171,7 +217,7 @@ export default function AttendancePage() {
     }
 
     fetchData()
-  }, [sectionId, profile, authLoading])
+  }, [sectionId, selectedDate, profile, authLoading])
 
   if (authLoading || loading) {
     return (
@@ -220,60 +266,44 @@ export default function AttendancePage() {
     )
   }
 
-  const attendanceDate = formatPacificDate(new Date())
-  // COMMENTED OUT FOR TESTING - Daily cutoff check
-  // const locked = isAfterDailyCutoff(new Date()) || Boolean(holiday)
-  const locked = Boolean(holiday) // Only lock on holidays, not time-based
+  // Only lock on holidays, not time-based (no 11PM cutoff)
+  const locked = Boolean(holiday)
+  
+  // Check if selected date is in the future
+  const today = formatPacificDate(new Date())
+  const isFutureDate = selectedDate > today
+
+  const handleDateChange = (newDate: string) => {
+    // Don't allow future dates
+    if (newDate > today) {
+      return
+    }
+    setSelectedDate(newDate)
+    // Update URL without navigation
+    const newSearchParams = new URLSearchParams(searchParams)
+    newSearchParams.set('date', newDate)
+    navigate(`/attendance?${newSearchParams.toString()}`, { replace: true })
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div>
-        <h2 className="text-2xl font-semibold">
+        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">
           Attendance - Grade {section.grade} {section.section}
         </h2>
-        <p className="text-sm text-muted-foreground">
-          School year: {section.school_year}
-        </p>
       </div>
       <AttendanceEditor
         sectionId={sectionId}
         schoolYear={section.school_year ?? ''}
-        attendanceDate={attendanceDate}
+        attendanceDate={selectedDate}
         students={students}
         existing={existingAttendance}
-        locked={locked}
+        locked={locked || isFutureDate}
         holidayName={holiday?.name ?? null}
-        onStudentAdded={async () => {
-          // Refresh student list after adding a new student
-          if (sectionId) {
-            const updatedStudents = await fetchStudents(sectionId)
-            if (updatedStudents !== null) {
-              setStudents(updatedStudents)
-              // Also refresh existing attendance to include the new student
-              const attendanceDate = formatPacificDate(new Date())
-              const studentIds = updatedStudents.map(s => s.id)
-              if (studentIds.length > 0) {
-                const { data: attendanceData } = await supabase
-                  .from('attendance')
-                  .select('student_id,status,comments')
-                  .eq('attendance_date', attendanceDate)
-                  .in('student_id', studentIds)
-
-                const existing = (attendanceData ?? []).reduce(
-                  (acc, entry) => {
-                    acc[entry.student_id] = {
-                      status: entry.status as AttendanceStatus,
-                      comments: entry.comments ?? '',
-                    }
-                    return acc
-                  },
-                  {} as Record<string, { status: AttendanceStatus; comments?: string | null }>
-                )
-                setExistingAttendance(existing)
-              }
-            }
-          }
-        }}
+        schoolYearDisplay={section.school_year}
+        onDateChange={handleDateChange}
+        sectionGrade={section.grade}
+        sectionName={section.section}
       />
     </div>
   )

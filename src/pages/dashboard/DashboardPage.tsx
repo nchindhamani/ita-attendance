@@ -10,10 +10,23 @@ export default function DashboardPage() {
     if (loading || !profile) return
 
     // Redirect based on role
-    if (profile.role === 'admin') {
-      navigate('/admin', { replace: true })
-    } else {
-      navigate('/teacher', { replace: true })
+    switch (profile.role) {
+      case 'admin':
+        navigate('/admin', { replace: true })
+        break
+      case 'principal':
+        navigate('/principal', { replace: true })
+        break
+      case 'attendance_officer':
+        navigate('/attendance-officer', { replace: true })
+        break
+      case 'hscp_officer':
+        navigate('/hscp-officer/teacher-attendance', { replace: true })
+        break
+      case 'teacher':
+      default:
+        navigate('/teacher', { replace: true })
+        break
     }
   }, [profile, loading, navigate])
 

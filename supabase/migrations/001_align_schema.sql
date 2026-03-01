@@ -34,33 +34,86 @@ from sections
 where students.section_id = sections.id and students.school_year is null;
 
 -- Attendance: rename date -> attendance_date, marked_by -> recorded_by
+-- Handle both 'attendance' and 'student_attendance' table names
 do $$
+declare
+  table_name_var text;
 begin
+  -- Check which table exists
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'student_attendance') then
+    table_name_var := 'student_attendance';
+  elsif exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'attendance') then
+    table_name_var := 'attendance';
+  else
+    -- Table doesn't exist yet, skip
+    return;
+  end if;
+
+  -- Rename columns if they exist
   if exists (
     select 1 from information_schema.columns
-    where table_name = 'attendance' and column_name = 'date'
+    where table_name = table_name_var and column_name = 'date'
   ) then
-    alter table attendance rename column date to attendance_date;
+    execute format('alter table %I rename column date to attendance_date', table_name_var);
   end if;
   if exists (
     select 1 from information_schema.columns
-    where table_name = 'attendance' and column_name = 'marked_by'
+    where table_name = table_name_var and column_name = 'marked_by'
   ) then
-    alter table attendance rename column marked_by to recorded_by;
+    execute format('alter table %I rename column marked_by to recorded_by', table_name_var);
   end if;
 end $$;
 
-alter table if exists attendance
-  add column if not exists school_year text;
+-- Add school_year column (works for both table names)
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'student_attendance') then
+    alter table if exists student_attendance add column if not exists school_year text;
+  elsif exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'attendance') then
+    alter table if exists attendance add column if not exists school_year text;
+  end if;
+end $$;
 
-update attendance
-set school_year = students.school_year
-from students
-where attendance.student_id = students.id and attendance.school_year is null;
+-- Update school_year from students (works for both table names)
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'student_attendance') then
+    update student_attendance
+    set school_year = students.school_year
+    from students
+    where student_attendance.student_id = students.id and student_attendance.school_year is null;
+  elsif exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'attendance') then
+    update attendance
+    set school_year = students.school_year
+    from students
+    where attendance.student_id = students.id and attendance.school_year is null;
+  end if;
+end $$;
 
-update attendance
-set status = 'left_early'
-where status = 'leaving_early';
+-- Update status values (works for both table names)
+-- Note: This update is only needed if legacy 'leaving_early' values exist
+-- Since the enum doesn't include 'leaving_early', we cast to text for comparison
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'student_attendance') then
+    -- Only update if there are rows with text value 'leaving_early' (legacy data)
+    -- Cast to text to avoid enum validation error
+    update student_attendance
+    set status = 'left_early'::attendance_status
+    where status::text = 'leaving_early';
+  elsif exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'attendance') then
+    -- Only update if there are rows with text value 'leaving_early' (legacy data)
+    -- Cast to text to avoid enum validation error
+    update attendance
+    set status = 'left_early'::attendance_status
+    where status::text = 'leaving_early';
+  end if;
+exception
+  when others then
+    -- If enum doesn't allow the comparison, just skip this update
+    -- (means enum is already correct and no legacy data exists)
+    null;
+end $$;
 
 -- Teacher sections: multi-teacher support
 create table if not exists teacher_sections (

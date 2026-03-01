@@ -3,3 +3,5 @@ alter table if exists students
   drop column if exists is_archived;
 
 
+
+

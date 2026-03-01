@@ -1,10 +1,13 @@
 import { useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
 import { Role } from '@/lib/types'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 
 const supabase = createSupabaseBrowserClient()
+
+const ALL_ROLES: Role[] = ['admin', 'teacher', 'principal', 'attendance_officer', 'hscp_officer']
 
 async function approveUserAsRole(
   userId: string,
@@ -210,16 +213,17 @@ export function UserManagementActions({
   onUserUpdated?: () => void
 }) {
   const [isPending, startTransition] = useTransition()
-  const [teacherGranted, setTeacherGranted] = useState(false)
-  const [adminGranted, setAdminGranted] = useState(false)
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null)
 
   const handleApprove = (nextRole: Role) => {
+    setSelectedRole(nextRole)
     startTransition(() => {
       approveUserAsRole(userId, nextRole).then((result) => {
         if (result?.error) {
           toast.error(result.error)
+          setSelectedRole(null)
         } else {
-          toast.success('Access approved successfully.')
+          toast.success(`User approved as ${nextRole.replace('_', ' ')}.`)
           if (onUserUpdated) {
             onUserUpdated()
           }
@@ -246,14 +250,13 @@ export function UserManagementActions({
     })
   }
 
-  const handleRoleChange = (checked: boolean) => {
-    const nextRole: Role = checked ? 'admin' : 'teacher'
+  const handleRoleChange = (newRole: Role) => {
     startTransition(() => {
-      updateUserRole(userId, nextRole).then((result) => {
+      updateUserRole(userId, newRole).then((result) => {
         if (result?.error) {
           toast.error(result.error)
         } else {
-          toast.success(`User role updated to ${nextRole}.`)
+          toast.success(`User role updated to ${newRole.replace('_', ' ')}.`)
           if (onUserUpdated) {
             onUserUpdated()
           }
@@ -267,29 +270,19 @@ export function UserManagementActions({
 
   if (view === 'approval') {
     return (
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={teacherGranted}
-            onCheckedChange={() => {
-              setTeacherGranted(true)
-              handleApprove('teacher')
-            }}
-            disabled={isPending || isApproved || adminGranted}
-          />
-          <span className="text-xs text-muted-foreground">Active</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={adminGranted}
-            onCheckedChange={() => {
-              setAdminGranted(true)
-              handleApprove('admin')
-            }}
-            disabled={isPending || isApproved || teacherGranted}
-          />
-          <span className="text-xs text-muted-foreground">Admin</span>
-        </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {ALL_ROLES.map((roleOption) => (
+          <Button
+            key={roleOption}
+            variant={selectedRole === roleOption ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleApprove(roleOption)}
+            disabled={isPending || isApproved || (selectedRole !== null && selectedRole !== roleOption)}
+            className="text-xs capitalize"
+          >
+            {roleOption.replace('_', ' ')}
+          </Button>
+        ))}
       </div>
     )
   }
@@ -301,22 +294,25 @@ export function UserManagementActions({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between">
+      <div className="flex-1">
+        <p className="text-sm text-muted-foreground">
+          {isSelf 
+            ? "You cannot change your own account status."
+            : "Toggle the switch to activate or deactivate this account."}
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
         <Switch
           checked={isActive}
           onCheckedChange={handleActiveToggle}
-          disabled={isPending}
+          disabled={isPending || isSelf}
         />
-        <span className="text-xs text-muted-foreground">Active</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={role === 'admin'}
-          onCheckedChange={handleRoleChange}
-          disabled={isPending}
-        />
-        <span className="text-xs text-muted-foreground">Admin</span>
+        <span className={`text-sm font-medium ${
+          isActive ? 'text-green-600' : 'text-gray-500'
+        }`}>
+          {isActive ? 'Active' : 'Inactive'}
+        </span>
       </div>
     </div>
   )

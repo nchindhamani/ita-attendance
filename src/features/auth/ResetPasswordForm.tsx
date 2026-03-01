@@ -36,8 +36,22 @@ export function ResetPasswordForm() {
       })
 
       if (resetError) {
-        setError(resetError.message || 'Failed to send reset email. Please try again.')
-        toast.error(resetError.message || 'Failed to send reset email.')
+        // Check for email quota limit errors
+        const errorMessage = resetError.message || ''
+        const isQuotaError = 
+          errorMessage.toLowerCase().includes('quota') ||
+          errorMessage.toLowerCase().includes('rate limit') ||
+          errorMessage.toLowerCase().includes('too many') ||
+          resetError.status === 429
+        
+        if (isQuotaError) {
+          const quotaMessage = 'Email quota limit reached. Please try after an hour or contact admin.'
+          setError(quotaMessage)
+          toast.error(quotaMessage)
+        } else {
+          setError(errorMessage || 'Failed to send reset email. Please try again.')
+          toast.error(errorMessage || 'Failed to send reset email.')
+        }
       } else {
         setSuccess('Password reset email sent! Please check your inbox.')
         toast.success('Password reset email sent! Please check your inbox.')

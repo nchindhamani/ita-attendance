@@ -39,13 +39,22 @@ export function LoginForm() {
 
       if (data.user) {
         // Check if user has an active, approved profile
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
-          .select("id,is_active,is_approved")
+          .select("id,is_active,is_approved,requires_password_reset")
           .eq("id", data.user.id)
           .maybeSingle();
 
+        if (profileError) {
+          console.error("Profile query error:", profileError);
+          setError(`Profile lookup failed: ${profileError.message}. Please contact an administrator.`);
+          await supabase.auth.signOut();
+          setLoading(false);
+          return;
+        }
+
         if (!profile) {
+          console.error("Profile not found for user ID:", data.user.id);
           setError("Profile not found. Please contact an administrator.");
           await supabase.auth.signOut();
           setLoading(false);
@@ -62,6 +71,13 @@ export function LoginForm() {
         if (!profile.is_approved) {
           // Redirect to pending approval page
           navigate("/pending");
+          return;
+        }
+
+        // Check if password reset is required
+        if (profile.requires_password_reset) {
+          // Redirect to force password reset page
+          navigate("/auth/force-password-reset");
           return;
         }
 

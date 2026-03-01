@@ -132,7 +132,7 @@ export default function TeacherStudentAttendancePage() {
 
       // Fetch attendance records
       const { data: attendanceData, error: attendanceError } = await supabase
-        .from('attendance')
+        .from('student_attendance')
         .select('attendance_date,status,comments')
         .eq('student_id', studentData.id)
         .eq('school_year', year)
@@ -198,7 +198,7 @@ export default function TeacherStudentAttendancePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">Student Attendance Lookup</h2>
+        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">Student Attendance Lookup</h2>
         <p className="text-sm text-muted-foreground">
           Search by ITA Student ID for the current school year ({schoolYear}).
         </p>

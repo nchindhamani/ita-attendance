@@ -11,6 +11,7 @@ import UpdatePasswordPage from './pages/auth/UpdatePasswordPage'
 import VerifyEmailPage from './pages/auth/VerifyEmailPage'
 import PendingApprovalPage from './pages/auth/PendingApprovalPage'
 import AuthCallbackPage from './pages/auth/AuthCallbackPage'
+import ForcePasswordResetPage from './pages/auth/ForcePasswordResetPage'
 
 // Dashboard pages
 import DashboardPage from './pages/dashboard/DashboardPage'
@@ -29,6 +30,26 @@ import AdminUserDetailPage from './pages/admin/AdminUserDetailPage'
 import AdminAttendancePage from './pages/admin/AdminAttendancePage'
 import AdminStudentAttendancePage from './pages/admin/AdminStudentAttendancePage'
 import AdminArchivePage from './pages/admin/AdminArchivePage'
+
+// Principal pages
+import PrincipalPage from './pages/principal/PrincipalPage'
+import PrincipalStudentAttendancePage from './pages/principal/PrincipalStudentAttendancePage'
+import PrincipalTeacherAttendancePage from './pages/principal/PrincipalTeacherAttendancePage'
+import PrincipalUsersPage from './pages/principal/PrincipalUsersPage'
+
+// Attendance Officer pages
+import AttendanceOfficerPage from './pages/attendance-officer/AttendanceOfficerPage'
+import AttendanceOfficerAttendancePage from './pages/attendance-officer/AttendanceOfficerAttendancePage'
+import AttendanceOfficerStudentsPage from './pages/attendance-officer/AttendanceOfficerStudentsPage'
+
+// HSCP Officer pages
+import HSCPOfficerPage from './pages/hscp-officer/HSCPOfficerPage'
+import HSCPOfficerUsersPage from './pages/hscp-officer/HSCPOfficerUsersPage'
+import HSCPOfficerTeacherAttendancePage from './pages/hscp-officer/HSCPOfficerTeacherAttendancePage'
+import HSCPOfficerStudentAttendancePage from './pages/hscp-officer/HSCPOfficerStudentAttendancePage'
+import HSCPOfficerStudentAttendanceViewPage from './pages/hscp-officer/HSCPOfficerStudentAttendanceViewPage'
+import HSCPOfficerTeachersPage from './pages/hscp-officer/HSCPOfficerTeachersPage'
+import HSCPOfficerTeacherDetailPage from './pages/hscp-officer/HSCPOfficerTeacherDetailPage'
 
 // Other pages
 import HomePage from './pages/HomePage'
@@ -57,6 +78,7 @@ function App() {
           <Route path="/auth/signup/teacher" element={<SignupTeacherPage />} />
           <Route path="/auth/reset" element={<ResetPasswordPage />} />
           <Route path="/auth/update-password" element={<UpdatePasswordPage />} />
+          <Route path="/auth/force-password-reset" element={<ForcePasswordResetPage />} />
           <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
           <Route path="/auth/pending-approval" element={<PendingApprovalPage />} />
         </Route>
@@ -79,6 +101,27 @@ function App() {
           <Route path="/admin/attendance" element={<AdminAttendancePage />} />
           <Route path="/admin/student-attendance" element={<AdminStudentAttendancePage />} />
           <Route path="/admin/archive" element={<AdminArchivePage />} />
+          
+          {/* Principal routes */}
+          <Route path="/principal" element={<PrincipalPage />} />
+          <Route path="/principal/student-attendance" element={<PrincipalStudentAttendancePage />} />
+          <Route path="/principal/teacher-attendance" element={<PrincipalTeacherAttendancePage />} />
+          <Route path="/principal/users" element={<PrincipalUsersPage />} />
+          
+          {/* Attendance Officer routes */}
+          <Route path="/attendance-officer" element={<AttendanceOfficerPage />} />
+          <Route path="/attendance-officer/attendance" element={<AttendanceOfficerAttendancePage />} />
+          <Route path="/attendance-officer/students" element={<AttendanceOfficerStudentsPage />} />
+          
+          {/* HSCP Officer routes */}
+          {/* <Route path="/hscp-officer" element={<HSCPOfficerPage />} /> */}
+          <Route path="/hscp-officer" element={<HSCPOfficerTeacherAttendancePage />} />
+          <Route path="/hscp-officer/users" element={<HSCPOfficerUsersPage />} />
+          <Route path="/hscp-officer/teachers" element={<HSCPOfficerTeachersPage />} />
+          <Route path="/hscp-officer/teachers/:id" element={<HSCPOfficerTeacherDetailPage />} />
+          <Route path="/hscp-officer/teacher-attendance" element={<HSCPOfficerTeacherAttendancePage />} />
+          <Route path="/hscp-officer/student-attendance" element={<HSCPOfficerStudentAttendancePage />} />
+          <Route path="/hscp-officer/hscp-student-attendance" element={<HSCPOfficerStudentAttendanceViewPage />} />
         </Route>
 
         {/* Other routes */}

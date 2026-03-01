@@ -15,9 +15,10 @@ export default function DashboardLayout() {
     )
   }
 
-  const navLinks =
-    profile.role === "admin"
-      ? [
+  const getNavLinks = () => {
+    switch (profile.role) {
+      case "admin":
+        return [
           { href: "/admin", label: "Admin Overview" },
           { href: "/admin/users", label: "User Management" },
           { href: "/admin/attendance", label: "Attendance" },
@@ -25,13 +26,43 @@ export default function DashboardLayout() {
           { href: "/admin/archive", label: "Archive" },
           { href: "/profile", label: "Profile" },
         ]
-      : [
-          { href: "/teacher", label: "My Classes" },
+      case "principal":
+        return [
+          { href: "/principal", label: "Overview" },
+          { href: "/principal/student-attendance", label: "Student Attendance" },
+          { href: "/principal/teacher-attendance", label: "Teacher Attendance" },
+          { href: "/principal/users", label: "User Profiles" },
+          { href: "/profile", label: "Profile" },
+        ]
+      case "attendance_officer":
+        return [
+          { href: "/attendance-officer", label: "Overview" },
+          { href: "/attendance-officer/attendance", label: "Manage Attendance" },
+          { href: "/attendance-officer/students", label: "Student Profiles" },
+          { href: "/profile", label: "Profile" },
+        ]
+      case "hscp_officer":
+        return [
+          // { href: "/hscp-officer", label: "Overview" },
+          { href: "/hscp-officer/teacher-attendance", label: "HSCP Teacher Attendance" },
+          { href: "/hscp-officer/users", label: "HSCP Teacher Management" },
+          { href: "/hscp-officer/hscp-student-attendance", label: "HSCP Student Attendance" },
+          { href: "/hscp-officer/student-attendance", label: "HSCP Student Lookup" },
+          { href: "/profile", label: "Profile" },
+        ]
+      case "teacher":
+      default:
+        return [
+          { href: "/teacher", label: "My Class" },
           { href: "/attendance", label: "Attendance" },
           { href: "/history", label: "History" },
           { href: "/teacher/student-attendance", label: "Student Lookup" },
           { href: "/profile", label: "Profile" },
         ]
+    }
+  }
+
+  const navLinks = getNavLinks()
 
   return (
     <div className="min-h-screen bg-[#fafafa] flex flex-col md:flex-row">

@@ -1,31 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import Papa from "papaparse";
 import { toast } from "sonner";
-import { Check, X, Clock, ArrowRight, Pencil } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import Papa from "papaparse";
+import { formatPacificDate } from "@/lib/time";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-// Table components imported but not used in current implementation
-// import {
-//   Table,
-//   TableBody,
-//   TableCell,
-//   TableHead,
-//   TableHeader,
-//   TableRow,
-// } from "@/components/ui/table";
-import { Tooltip } from "@/components/ui/tooltip";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AttendanceStatus } from "@/lib/types";
 // TODO: Convert these to API calls to /api/attendance
 // import {
@@ -42,134 +25,8 @@ type AttendanceEntryInput = {
   comments?: string | null;
 };
 
-// API call functions
 const supabase = createSupabaseBrowserClient();
 
-const addStudent = async (params: {
-  sectionId: string;
-  schoolYear: string;
-  studentIdentifier: string;
-  fullName: string;
-}): Promise<{ success?: string; error?: string }> => {
-  try {
-    // Get JWT token from Supabase session
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      return { error: "Not authenticated. Please sign in again." };
-    }
-
-    // Call Python API
-    const response = await fetch("/api/students", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sectionId: params.sectionId,
-        schoolYear: params.schoolYear,
-        studentIdentifier: params.studentIdentifier,
-        fullName: params.fullName,
-      }),
-    });
-
-    // Check if response has content before parsing
-    const contentType = response.headers.get("content-type");
-    const responseText = await response.text();
-
-    // Handle empty responses
-    if (!responseText || responseText.trim() === "") {
-      return { 
-        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.` 
-      };
-    }
-
-    // Check if response is JSON
-    if (!contentType || !contentType.includes("application/json")) {
-      return { 
-        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}` 
-      };
-    }
-
-    // Parse JSON
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      return { 
-        error: `Failed to parse server response: ${responseText.substring(0, 200)}` 
-      };
-    }
-
-    if (!response.ok) {
-      return { error: data.error || data.detail || `Server error: ${response.status}` };
-    }
-
-    return data;
-  } catch (err) {
-    return { 
-      error: err instanceof Error ? err.message : "Failed to add student" 
-    };
-  }
-};
-
-async function addStudentsFromCsv(params: {
-  sectionId: string
-  schoolYear: string
-  students: { studentIdentifier: string; fullName: string }[]
-}): Promise<{ success?: string; error?: string }> {
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) {
-      return { error: 'Not authenticated. Please sign in again.' }
-    }
-
-    const response = await fetch('/api/students/bulk', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sectionId: params.sectionId,
-        schoolYear: params.schoolYear,
-        students: params.students,
-      }),
-    })
-
-    const contentType = response.headers.get('content-type')
-    const responseText = await response.text()
-
-    if (!responseText || responseText.trim() === '') {
-      return {
-        error: `Server error: ${response.status} ${response.statusText}. Empty response from server.`,
-      }
-    }
-
-    if (!contentType || !contentType.includes('application/json')) {
-      return {
-        error: `Server error: ${response.status} ${response.statusText}. ${responseText.substring(0, 200)}`,
-      }
-    }
-
-    let data
-    try {
-      data = JSON.parse(responseText)
-    } catch (parseError) {
-      return {
-        error: `Failed to parse server response: ${responseText.substring(0, 200)}`,
-      }
-    }
-
-    if (!response.ok) {
-      return { error: data.detail || data.error || 'Failed to upload roster.' }
-    }
-
-    return { success: data.success || 'Student roster uploaded.' }
-  } catch (e: any) {
-    return { error: e.message || 'An unexpected error occurred.' }
-  }
-}
 const saveAttendance = async (params: {
   sectionId: string;
   attendanceDate: string;
@@ -264,7 +121,10 @@ export function AttendanceEditor({
   existing,
   locked,
   holidayName,
-  onStudentAdded,
+  schoolYearDisplay,
+  onDateChange,
+  sectionGrade,
+  sectionName,
 }: {
   sectionId: string;
   schoolYear: string;
@@ -273,13 +133,12 @@ export function AttendanceEditor({
   existing: ExistingAttendance;
   locked: boolean;
   holidayName?: string | null;
-  onStudentAdded?: () => void | Promise<void>;
+  schoolYearDisplay?: string | null;
+  onDateChange?: (date: string) => void;
+  sectionGrade?: string | null;
+  sectionName?: string | null;
 }) {
   const [isPending, startTransition] = useTransition();
-  const [csvPending, startCsvTransition] = useTransition();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [studentIdentifier, setStudentIdentifier] = useState("");
-  const [studentName, setStudentName] = useState("");
   const [showCommentInputs, setShowCommentInputs] = useState<Record<string, boolean>>({});
 
   const initialEntries = useMemo(() => {
@@ -324,11 +183,10 @@ export function AttendanceEditor({
   }, [entries]);
 
   const handleSave = () => {
-    // COMMENTED OUT FOR TESTING - Daily cutoff check
-    // if (locked) {
-    //   toast.error("Attendance is locked after 3:00 PM PT.");
-    //   return;
-    // }
+    if (locked) {
+      toast.error("Cannot save attendance for this date.");
+      return;
+    }
     startTransition(() => {
       saveAttendance({
         sectionId,
@@ -345,159 +203,97 @@ export function AttendanceEditor({
     });
   };
 
-  const handleManualAdd = () => {
-    if (!studentIdentifier.trim() || !studentName.trim()) {
-      toast.error("Enter a student ID and name.");
+  const handleDownloadCSV = () => {
+    if (students.length === 0) {
+      toast.error("No students to download.");
       return;
     }
-    startTransition(() => {
-      addStudent({
-        sectionId,
-        schoolYear,
-        studentIdentifier: studentIdentifier.trim(),
-        fullName: studentName.trim(),
-      }).then(async (result) => {
-        if (result?.error) {
-          toast.error(result.error);
-        } else {
-          toast.success(result?.success ?? "Student added.");
-          setStudentIdentifier("");
-          setStudentName("");
-          setDialogOpen(false);
-          // Refresh student list
-          if (onStudentAdded) {
-            await onStudentAdded();
-          }
-        }
-      });
+
+    // Create CSV rows from current entries
+    const csvRows = students.map((student) => {
+      const entry = entries.find((e) => e.studentId === student.id);
+      return {
+        "Student Name": student.full_name,
+        "Student ID": student.student_identifier ?? "",
+        "Status": entry?.status ?? "present",
+        "Comments": entry?.comments ?? "",
+      };
     });
+
+    const csv = Papa.unparse(csvRows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    const filename = `attendance-${sectionGrade ?? ""}-${sectionName ?? ""}-${attendanceDate}.csv`;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success("CSV downloaded successfully.");
   };
 
+  const today = formatPacificDate(new Date());
+  const maxDate = today; // Don't allow future dates
 
-  const handleCsvUpload = (file: File) => {
-    startCsvTransition(() => {
-      Papa.parse<string[]>(file, {
-        skipEmptyLines: true,
-        complete: async (results) => {
-          const students = results.data
-            .map((row, index) => {
-              const id = String(row[0] ?? "").trim();
-              const name = String(row[1] ?? "").trim();
-              if (
-                index === 0 &&
-                id.toLowerCase().includes("id") &&
-                name.toLowerCase().includes("name")
-              ) {
-                return null;
-              }
-              return { studentIdentifier: id, fullName: name };
-            })
-            .filter((row): row is { studentIdentifier: string; fullName: string } =>
-              Boolean(row && row.studentIdentifier && row.fullName)
-            );
-          const result = await addStudentsFromCsv({
-            sectionId,
-            schoolYear,
-            students,
-          });
-          if (result?.error) {
-            toast.error(result.error);
-          } else {
-            toast.success(result?.success ?? "Roster uploaded.");
-          }
-        },
-        error: () => {
-          toast.error("Unable to parse CSV.");
-        },
-      });
-    });
-  };
 
   return (
     <div className="space-y-6">
-      {/* Statistics Cards */}
-      <AttendanceStatistics counts={statistics} />
-
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+      {/* School Year */}
+      <div className="space-y-1">
+        {schoolYearDisplay && (
           <p className="text-sm text-muted-foreground">
-            Attendance date: {attendanceDate}
+            School year: {schoolYearDisplay}
           </p>
+        )}
         {holidayName ? (
           <p className="text-sm text-emerald-600">
             Holiday: {holidayName}. Attendance is not required today.
           </p>
         ) : null}
-        {/* COMMENTED OUT FOR TESTING - Daily cutoff lock message */}
-        {/* locked ? (
-          <p className="text-sm text-destructive">
-            Attendance is locked after 11:00 PM PT.
-          </p>
-        ) : null */}
-        </div>
-        {/* COMMENTED OUT FOR TESTING - disabled={locked || isPending} */}
-        <Button onClick={handleSave} disabled={isPending}>
-          {isPending ? "Saving..." : "Save attendance"}
-        </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button type="button" variant="outline">
-              Add student
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add student</DialogTitle>
-              <DialogDescription>
-                Enter the student ID and student name.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Student ID</label>
-                <Input
-                  value={studentIdentifier}
-                  onChange={(event) => setStudentIdentifier(event.target.value)}
-                  placeholder="STU-001"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Student name</label>
-                <Input
-                  value={studentName}
-                  onChange={(event) => setStudentName(event.target.value)}
-                  placeholder="Student Name"
-                />
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={handleManualAdd} disabled={isPending}>
-                  {isPending ? "Adding..." : "Add student"}
-                </Button>
-              </div>
+      {/* Date Picker Card with Buttons */}
+      <Card>
+        <CardHeader className="px-4 pt-2 pb-0">
+          <CardTitle className="text-lg mb-0 leading-none">Pick a date</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 -mt-3 pb-4">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex-1 sm:max-w-[180px]">
+              <Input
+                type="date"
+                value={attendanceDate}
+                max={maxDate}
+                onChange={(e) => {
+                  const newDate = e.target.value;
+                  if (newDate <= maxDate && onDateChange) {
+                    onDateChange(newDate);
+                  }
+                }}
+                className="w-full"
+              />
             </div>
-          </DialogContent>
-        </Dialog>
+            <div className="flex flex-col gap-2">
+              <Button onClick={handleSave} disabled={isPending || locked} className="w-full sm:w-auto">
+                {isPending ? "Saving..." : "Save attendance"}
+              </Button>
+              <Button 
+                onClick={handleDownloadCSV} 
+                variant="outline" 
+                className="w-full sm:w-auto"
+              >
+                Download CSV
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">
-            CSV columns: Student ID, Student Name
-          </p>
-          <Input
-            type="file"
-            accept=".csv"
-            disabled={csvPending}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                handleCsvUpload(file);
-              }
-            }}
-          />
-        </div>
-      </div>
+      {/* Statistics Cards */}
+      <AttendanceStatistics counts={statistics} />
+
 
       <div className="hidden md:block">
         <div className="space-y-3">
@@ -509,9 +305,7 @@ export function AttendanceEditor({
             return (
               <div
                 key={student.id}
-                className={`rounded-[12px] border bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.08)] ${
-                  currentStatus === "absent" ? "border-[#8b5cf6]" : "border-[#e5e7eb]"
-                }`}
+                className="rounded-[12px] border border-[#e5e7eb] bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition-all duration-[400ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:translate-y-[-8px] hover:shadow-[0_20px_40px_rgba(0,0,0,0.12)] hover:border-[#6366f1]"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
@@ -524,92 +318,86 @@ export function AttendanceEditor({
                   </div>
                   <div className="flex items-center gap-2">
                     {/* Present Button */}
-                    <Tooltip content="Present" side="bottom">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          !locked && updateEntry(student.id, { status: "present" })
-                        }
-                        disabled={locked}
-                        className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                          currentStatus === "present"
-                            ? "bg-[#10b981] text-white"
-                            : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        <Check className="w-5 h-5" />
-                      </button>
-                    </Tooltip>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        !locked && updateEntry(student.id, { status: "present" })
+                      }
+                      disabled={locked}
+                      className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                        currentStatus === "present"
+                          ? "bg-white border-2 border-[#10b981] text-[#10b981]"
+                          : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      Present
+                    </button>
 
                     {/* Absent Button */}
-                    <Tooltip content="Absent" side="bottom">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          !locked && updateEntry(student.id, { status: "absent" })
-                        }
-                        disabled={locked}
-                        className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                          currentStatus === "absent"
-                            ? "bg-white border-2 border-[#ef4444] text-[#ef4444]"
-                            : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </Tooltip>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        !locked && updateEntry(student.id, { status: "absent" })
+                      }
+                      disabled={locked}
+                      className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                        currentStatus === "absent"
+                          ? "bg-white border-2 border-[#ef4444] text-[#ef4444]"
+                          : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      Absent
+                    </button>
 
                     {/* Late Button */}
-                    <Tooltip content="Late" side="bottom">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          !locked && updateEntry(student.id, { status: "late" })
-                        }
-                        disabled={locked}
-                        className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                          currentStatus === "late"
-                            ? "bg-white border-2 border-[#f97316] text-[#f97316]"
-                            : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        <Clock className="w-5 h-5" />
-                      </button>
-                    </Tooltip>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        !locked && updateEntry(student.id, { status: "late" })
+                      }
+                      disabled={locked}
+                      className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                        currentStatus === "late"
+                          ? "bg-white border-2 border-[#f97316] text-[#f97316]"
+                          : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      Late
+                    </button>
 
                     {/* Left Early Button */}
-                    <Tooltip content="Left Early" side="bottom">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          !locked && updateEntry(student.id, { status: "left_early" })
-                        }
-                        disabled={locked}
-                        className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                          currentStatus === "left_early"
-                            ? "bg-white border-2 border-[#8b5cf6] text-[#8b5cf6]"
-                            : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        <ArrowRight className="w-5 h-5" />
-                      </button>
-                    </Tooltip>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        !locked && updateEntry(student.id, { status: "left_early" })
+                      }
+                      disabled={locked}
+                      className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                        currentStatus === "left_early"
+                          ? "bg-white border-2 border-[#8b5cf6] text-[#8b5cf6]"
+                          : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      Left Early
+                    </button>
 
                     {/* Comment Button */}
-                    <Tooltip content="Add Comment" side="bottom">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowCommentInputs((prev) => ({
-                            ...prev,
-                            [student.id]: !prev[student.id],
-                          }))
-                        }
-                        className="w-10 h-10 rounded-[8px] flex items-center justify-center bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db] transition-all"
-                      >
-                        <Pencil className="w-5 h-5" />
-                      </button>
-                    </Tooltip>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowCommentInputs((prev) => ({
+                          ...prev,
+                          [student.id]: !prev[student.id],
+                        }))
+                      }
+                      className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center bg-white transition-all text-sm font-medium ${
+                        entry?.comments && entry.comments.trim()
+                          ? "border-2 border-[#3b82f6] text-[#3b82f6]"
+                          : "border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                      }`}
+                    >
+                      Comments
+                    </button>
                   </div>
                 </div>
                 {showCommentInput && (
@@ -640,9 +428,7 @@ export function AttendanceEditor({
           return (
             <div
               key={student.id}
-              className={`rounded-[12px] border bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.08)] ${
-                currentStatus === "absent" ? "border-[#8b5cf6]" : "border-[#e5e7eb]"
-              }`}
+              className="rounded-[12px] border border-[#e5e7eb] bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition-all duration-[400ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:translate-y-[-8px] hover:shadow-[0_20px_40px_rgba(0,0,0,0.12)] hover:border-[#6366f1]"
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex-1">
@@ -656,92 +442,86 @@ export function AttendanceEditor({
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Present Button */}
-                <Tooltip content="Present" side="bottom">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      !locked && updateEntry(student.id, { status: "present" })
-                    }
-                    disabled={locked}
-                    className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                      currentStatus === "present"
-                        ? "bg-[#10b981] text-white"
-                        : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    <Check className="w-5 h-5" />
-                  </button>
-                </Tooltip>
+                <button
+                  type="button"
+                  onClick={() =>
+                    !locked && updateEntry(student.id, { status: "present" })
+                  }
+                  disabled={locked}
+                  className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                    currentStatus === "present"
+                      ? "bg-white border-2 border-[#10b981] text-[#10b981]"
+                      : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  Present
+                </button>
 
                 {/* Absent Button */}
-                <Tooltip content="Absent" side="bottom">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      !locked && updateEntry(student.id, { status: "absent" })
-                    }
-                    disabled={locked}
-                    className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                      currentStatus === "absent"
-                        ? "bg-white border-2 border-[#ef4444] text-[#ef4444]"
-                        : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </Tooltip>
+                <button
+                  type="button"
+                  onClick={() =>
+                    !locked && updateEntry(student.id, { status: "absent" })
+                  }
+                  disabled={locked}
+                  className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                    currentStatus === "absent"
+                      ? "bg-white border-2 border-[#ef4444] text-[#ef4444]"
+                      : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  Absent
+                </button>
 
                 {/* Late Button */}
-                <Tooltip content="Late" side="bottom">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      !locked && updateEntry(student.id, { status: "late" })
-                    }
-                    disabled={locked}
-                    className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                      currentStatus === "late"
-                        ? "bg-white border-2 border-[#f97316] text-[#f97316]"
-                        : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    <Clock className="w-5 h-5" />
-                  </button>
-                </Tooltip>
+                <button
+                  type="button"
+                  onClick={() =>
+                    !locked && updateEntry(student.id, { status: "late" })
+                  }
+                  disabled={locked}
+                  className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                    currentStatus === "late"
+                      ? "bg-white border-2 border-[#f97316] text-[#f97316]"
+                      : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  Late
+                </button>
 
                 {/* Left Early Button */}
-                <Tooltip content="Left Early" side="bottom">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      !locked && updateEntry(student.id, { status: "left_early" })
-                    }
-                    disabled={locked}
-                    className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
-                      currentStatus === "left_early"
-                        ? "bg-white border-2 border-[#8b5cf6] text-[#8b5cf6]"
-                        : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    <ArrowRight className="w-5 h-5" />
-                  </button>
-                </Tooltip>
+                <button
+                  type="button"
+                  onClick={() =>
+                    !locked && updateEntry(student.id, { status: "left_early" })
+                  }
+                  disabled={locked}
+                  className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                    currentStatus === "left_early"
+                      ? "bg-white border-2 border-[#8b5cf6] text-[#8b5cf6]"
+                      : "bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  Left Early
+                </button>
 
                 {/* Comment Button */}
-                <Tooltip content="Add Comment" side="bottom">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowCommentInputs((prev) => ({
-                        ...prev,
-                        [student.id]: !prev[student.id],
-                      }))
-                    }
-                    className="w-10 h-10 rounded-[8px] flex items-center justify-center bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db] transition-all"
-                  >
-                    <Pencil className="w-5 h-5" />
-                  </button>
-                </Tooltip>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowCommentInputs((prev) => ({
+                      ...prev,
+                      [student.id]: !prev[student.id],
+                    }))
+                  }
+                  className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center bg-white transition-all text-sm font-medium ${
+                    entry?.comments && entry.comments.trim()
+                      ? "border-2 border-[#3b82f6] text-[#3b82f6]"
+                      : "border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]"
+                  }`}
+                >
+                  Comments
+                </button>
               </div>
               {showCommentInput && (
                 <div className="mt-3">

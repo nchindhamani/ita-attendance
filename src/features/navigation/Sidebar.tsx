@@ -58,7 +58,7 @@ export function Sidebar({ navLinks, profile }: SidebarProps) {
             {navLinks.map((link) => {
               const isActive = 
                 pathname === link.href || 
-                (pathname.startsWith(`${link.href}/`) && link.href !== "/admin" && link.href !== "/teacher");
+                (pathname.startsWith(`${link.href}/`) && link.href !== "/admin" && link.href !== "/teacher" && link.href !== "/hscp-officer" && link.href !== "/principal" && link.href !== "/attendance-officer");
               
               return (
                 <Link
