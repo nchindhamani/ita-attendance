@@ -1,15 +1,21 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useMemo, useRef, useCallback, useTransition } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-// Button import available if needed
-// import { Button } from '@/components/ui/button'
-import { TeacherAttendanceEditor } from '@/features/attendance/TeacherAttendanceEditor'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
+import { AttendanceStatistics } from '@/features/attendance/AttendanceStatistics'
+import { Download } from 'lucide-react'
+import { toast } from 'sonner'
+import Papa from 'papaparse'
 
 const supabase = createSupabaseBrowserClient()
+
+const ALL_GRADES = '__ALL__'
 
 type Teacher = {
   id: string
@@ -24,93 +30,217 @@ type Holiday = {
   name: string
 }
 
+type AttendanceEntry = {
+  teacherId: string
+  status: string // '' | 'present' | 'absent' | 'late' | 'left_early'
+  comments: string
+}
+
+// ─── Save helper ────────────────────────────────────────
+const saveTeacherAttendance = async (params: {
+  attendanceDate: string
+  schoolYear: string
+  entries: { teacherId: string; status: string; comments?: string | null }[]
+}): Promise<{ success?: string; error?: string }> => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return { error: 'Not authenticated. Please sign in again.' }
+
+    const response = await fetch('/api/teacher-attendance', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        attendanceDate: params.attendanceDate,
+        schoolYear: params.schoolYear,
+        entries: params.entries,
+      }),
+    })
+
+    const responseText = await response.text()
+    if (!responseText || responseText.trim() === '') {
+      return { error: `Server error: ${response.status} ${response.statusText}. Empty response.` }
+    }
+
+    const contentType = response.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      return { error: `Server error: ${response.status}. ${responseText.substring(0, 200)}` }
+    }
+
+    let data
+    try {
+      data = JSON.parse(responseText)
+    } catch {
+      return { error: `Failed to parse server response: ${responseText.substring(0, 200)}` }
+    }
+
+    if (!response.ok) return { error: data.error || data.detail || 'Failed to save attendance' }
+    return { success: data.success || 'Attendance saved.' }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'An unexpected error occurred' }
+  }
+}
+
 export default function HSCPOfficerTeacherAttendancePage() {
   const { profile, loading: authLoading } = useRequireActiveProfile()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+
   const dateParam = searchParams.get('date')
+  const gradeParam = searchParams.get('grade') || ALL_GRADES
+
   const [initialLoading, setInitialLoading] = useState(true)
   const [teachers, setTeachers] = useState<Teacher[]>([])
-  const [existingAttendance, setExistingAttendance] = useState<Record<string, { status: AttendanceStatus; comments?: string | null }>>({})
   const [holiday, setHoliday] = useState<Holiday | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [schoolYear, setSchoolYear] = useState<string>('2025-2026')
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
+  const [selectedGrade, setSelectedGrade] = useState<string>(gradeParam === 'all' ? ALL_GRADES : gradeParam)
+
+  // Entries keyed by teacher id
+  const [entries, setEntries] = useState<AttendanceEntry[]>([])
+  const [showCommentInputs, setShowCommentInputs] = useState<Record<string, boolean>>({})
+  const [isPending, startTransition] = useTransition()
+
+  // Tab selection per grade (for All Grades view) and for single grade
+  const [gradeTabSelections, setGradeTabSelections] = useState<Record<string, string>>({})
+  const [singleGradeTab, setSingleGradeTab] = useState<string>('')
+
   const teachersLoadedRef = useRef(false)
-  const cachedTeachersRef = useRef<Teacher[]>([])
   const cachedSchoolYearRef = useRef<string>('2025-2026')
+  const prevDateRef = useRef(selectedDate)
 
-  // Update URL if date param is missing
-  useEffect(() => {
-    if (!dateParam) {
-      const today = formatPacificDate(new Date())
-      const newSearchParams = new URLSearchParams(searchParams)
-      newSearchParams.set('date', today)
-      navigate(`/hscp-officer/teacher-attendance?${newSearchParams.toString()}`, { replace: true })
-    }
-  }, [dateParam, searchParams, navigate])
+  const today = formatPacificDate(new Date())
+  const isAllGrades = selectedGrade === ALL_GRADES
 
-  // Fetch attendance data for a given date (reusable)
-  const fetchAttendanceForDate = useCallback(async (date: string, currentSchoolYear: string) => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
+  // ─── Derived data ──────────────────────────────────────
+  // Available HSCP grades extracted from teachers
+  const availableGrades = useMemo(() => {
+    const grades = new Set<string>()
+    teachers.forEach((t) => {
+      if (t.grade) grades.add(t.grade)
+    })
+    return Array.from(grades).sort()
+  }, [teachers])
 
-      // Check for holiday
-      const { data: holidayData } = await supabase
-        .from('holidays')
-        .select('holiday_date,name')
-        .eq('school_year', currentSchoolYear)
-        .eq('holiday_date', date)
-        .maybeSingle()
+  // Group teachers by grade
+  const teachersByGrade = useMemo(() => {
+    const map: Record<string, Teacher[]> = {}
+    teachers.forEach((t) => {
+      const grade = t.grade || 'Unknown'
+      if (!map[grade]) map[grade] = []
+      map[grade].push(t)
+    })
+    return map
+  }, [teachers])
 
-      setHoliday(holidayData || null)
-
-      // Fetch existing attendance for selected date using API endpoint
-      console.log(`Fetching attendance for date ${date} via API`)
-      
-      const response = await fetch(`/api/teacher-attendance?date=${date}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
+  // Get unique sections for a grade (sorted: Conversation, Reading, Writing)
+  const getSectionsForGrade = useCallback(
+    (grade: string): string[] => {
+      const gradeTeachers = teachersByGrade[grade] || []
+      const sections = new Set<string>()
+      gradeTeachers.forEach((t) => {
+        if (t.section) sections.add(t.section)
       })
+      return Array.from(sections).sort()
+    },
+    [teachersByGrade]
+  )
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to fetch attendance' }))
-        console.error('Error fetching teacher attendance:', errorData)
-        setExistingAttendance({})
-      } else {
-        const data = await response.json()
-        console.log(`Fetched attendance for ${date}:`, data)
-        
-        if (data.attendance && Array.isArray(data.attendance) && data.attendance.length > 0) {
-          const existing = data.attendance.reduce(
-            (acc: Record<string, { status: AttendanceStatus; comments?: string | null }>, entry: any) => {
-              if (entry && entry.teacher_id) {
-                acc[entry.teacher_id] = {
-                  status: entry.status as AttendanceStatus,
-                  comments: entry.comments ?? '',
-                }
-              }
-              return acc
-            },
-            {} as Record<string, { status: AttendanceStatus; comments?: string | null }>
-          )
-          console.log('Processed existing attendance:', existing)
-          setExistingAttendance(existing)
-        } else {
-          console.log('No attendance data found for date:', date, '(empty array)')
-          setExistingAttendance({})
+  // Get teachers for a grade+section
+  const getTeachersForGradeSection = useCallback(
+    (grade: string, section: string): Teacher[] => {
+      return (teachersByGrade[grade] || []).filter((t) => t.section === section)
+    },
+    [teachersByGrade]
+  )
+
+  // ─── URL sync ──────────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (selectedGrade === ALL_GRADES) params.set('grade', 'all')
+    else if (selectedGrade) params.set('grade', selectedGrade)
+    if (selectedDate) params.set('date', selectedDate)
+    navigate(`/hscp-officer/teacher-attendance?${params.toString()}`, { replace: true })
+  }, [selectedGrade, selectedDate, navigate])
+
+  // ─── Fetch attendance for a date ───────────────────────
+  const fetchAttendanceForDate = useCallback(
+    async (date: string, currentSchoolYear: string) => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+
+        // Check for holiday
+        const { data: holidayData } = await supabase
+          .from('holidays')
+          .select('holiday_date,name')
+          .eq('school_year', currentSchoolYear)
+          .eq('holiday_date', date)
+          .maybeSingle()
+
+        setHoliday(holidayData || null)
+
+        // Fetch existing attendance via API
+        const response = await fetch(`/api/teacher-attendance?date=${date}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        })
+
+        if (!response.ok) {
+          console.error('Error fetching teacher attendance')
+          return
         }
-      }
-    } catch (err) {
-      console.error('Error fetching attendance:', err)
-    }
-  }, [])
 
-  // Initial load: fetch teachers and school year (only once)
+        const data = await response.json()
+        const existingMap: Record<string, { status: AttendanceStatus; comments?: string | null }> = {}
+
+        if (data.attendance && Array.isArray(data.attendance)) {
+          data.attendance.forEach((entry: any) => {
+            if (entry && entry.teacher_id) {
+              existingMap[entry.teacher_id] = {
+                status: entry.status as AttendanceStatus,
+                comments: entry.comments ?? '',
+              }
+            }
+          })
+        }
+
+        // Build entries list from all teachers + existing attendance
+        setEntries((prevEntries) => {
+          // If date changed, fully rebuild; otherwise preserve current state
+          if (date !== prevDateRef.current || prevEntries.length === 0) {
+            return teachers.map((t) => ({
+              teacherId: t.id,
+              status: existingMap[t.id]?.status ?? '',
+              comments: existingMap[t.id]?.comments ?? '',
+            }))
+          }
+          // Same date (after save refresh) - update from DB
+          return prevEntries.map((e) => {
+            const existing = existingMap[e.teacherId]
+            if (existing) {
+              return { ...e, status: existing.status, comments: existing.comments ?? '' }
+            }
+            return e
+          })
+        })
+        prevDateRef.current = date
+      } catch (err) {
+        console.error('Error fetching attendance:', err)
+      }
+    },
+    [teachers]
+  )
+
+  // ─── Initial load: fetch teachers ─────────────────────
   useEffect(() => {
     if (authLoading || !profile) return
     if (teachersLoadedRef.current) return
@@ -120,12 +250,12 @@ export default function HSCPOfficerTeacherAttendancePage() {
       setError(null)
 
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session?.access_token) {
-          throw new Error('Not authenticated')
-        }
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (!session?.access_token) throw new Error('Not authenticated')
 
-        // Get current school year from settings or default
+        // Get school year
         const { data: settings } = await supabase
           .from('system_settings')
           .select('current_school_year')
@@ -136,18 +266,18 @@ export default function HSCPOfficerTeacherAttendancePage() {
         setSchoolYear(currentSchoolYear)
         cachedSchoolYearRef.current = currentSchoolYear
 
-        // Fetch HSCP teachers from backend API
+        // Fetch HSCP teachers
         const response = await fetch('/api/admin/users', {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${session.access_token}`,
             'Content-Type': 'application/json',
           },
         })
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Failed to fetch teachers' }))
-          throw new Error(errorData.error || errorData.detail || 'Failed to fetch teachers')
+          throw new Error(errorData.error || 'Failed to fetch teachers')
         }
 
         const data = await response.json()
@@ -166,15 +296,8 @@ export default function HSCPOfficerTeacherAttendancePage() {
             section: user.section || null,
           }))
 
-        console.log('Fetched HSCP teachers:', hscpTeachers.length, hscpTeachers)
         setTeachers(hscpTeachers)
-        cachedTeachersRef.current = hscpTeachers
         teachersLoadedRef.current = true
-
-        // Fetch attendance for the initial date
-        if (hscpTeachers.length > 0) {
-          await fetchAttendanceForDate(selectedDate, currentSchoolYear)
-        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred')
       } finally {
@@ -183,16 +306,295 @@ export default function HSCPOfficerTeacherAttendancePage() {
     }
 
     fetchInitialData()
-  }, [profile, authLoading, selectedDate, fetchAttendanceForDate])
+  }, [profile, authLoading])
 
-  // When date changes after initial load, only re-fetch attendance (not teachers)
+  // ─── Fetch attendance when teachers loaded or date changes ─
   useEffect(() => {
-    if (!teachersLoadedRef.current) return
-    if (cachedTeachersRef.current.length === 0) return
-
+    if (!teachersLoadedRef.current || teachers.length === 0) return
     fetchAttendanceForDate(selectedDate, cachedSchoolYearRef.current)
-  }, [selectedDate, fetchAttendanceForDate])
+  }, [selectedDate, teachers, fetchAttendanceForDate])
 
+  // ─── Initialize tab selections once teachers are loaded ─
+  useEffect(() => {
+    if (availableGrades.length === 0) return
+
+    // Initialize per-grade tab selections
+    const newSelections: Record<string, string> = {}
+    availableGrades.forEach((grade) => {
+      if (!gradeTabSelections[grade]) {
+        const sections = getSectionsForGrade(grade)
+        if (sections.length > 0) newSelections[grade] = sections[0]
+      }
+    })
+    if (Object.keys(newSelections).length > 0) {
+      setGradeTabSelections((prev) => ({ ...prev, ...newSelections }))
+    }
+
+    // Initialize single grade tab
+    if (!singleGradeTab && !isAllGrades && selectedGrade) {
+      const sections = getSectionsForGrade(selectedGrade)
+      if (sections.length > 0) setSingleGradeTab(sections[0])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableGrades, selectedGrade, isAllGrades])
+
+  // ─── Entry update ──────────────────────────────────────
+  const updateEntry = (teacherId: string, updates: { status?: AttendanceStatus; comments?: string }) => {
+    setEntries((prev) => prev.map((e) => (e.teacherId === teacherId ? { ...e, ...updates } : e)))
+  }
+
+  // ─── Statistics for a set of teachers ──────────────────
+  const getStatsForTeachers = useCallback(
+    (teacherIds: string[]) => {
+      const counts = { present: 0, absent: 0, late: 0, left_early: 0 }
+      teacherIds.forEach((tid) => {
+        const entry = entries.find((e) => e.teacherId === tid)
+        const status = entry?.status as keyof typeof counts
+        if (status && status in counts) counts[status] += 1
+      })
+      return counts
+    },
+    [entries]
+  )
+
+  // ─── Handlers ──────────────────────────────────────────
+  const handleDateChange = (newDate: string) => {
+    if (newDate > today) return
+    setSelectedDate(newDate)
+  }
+
+  const handleGradeChange = (grade: string) => {
+    setSelectedGrade(grade)
+    if (grade !== ALL_GRADES) {
+      const sections = getSectionsForGrade(grade)
+      setSingleGradeTab(sections.length > 0 ? sections[0] : '')
+    }
+  }
+
+  const locked = Boolean(holiday)
+  const isFutureDate = selectedDate > today
+
+  const handleSave = () => {
+    if (locked || isFutureDate) {
+      toast.error('Cannot save attendance for this date.')
+      return
+    }
+
+    // Determine which teachers are currently visible
+    let visibleTeacherIds: string[]
+    if (isAllGrades) {
+      visibleTeacherIds = teachers.map((t) => t.id)
+    } else {
+      visibleTeacherIds = (teachersByGrade[selectedGrade] || []).map((t) => t.id)
+    }
+
+    const entriesToSave = entries.filter((e) => visibleTeacherIds.includes(e.teacherId) && e.status !== '')
+    if (entriesToSave.length === 0) {
+      toast.error('Please set attendance status for at least one teacher before saving.')
+      return
+    }
+
+    startTransition(() => {
+      saveTeacherAttendance({
+        attendanceDate: selectedDate,
+        schoolYear,
+        entries: entriesToSave,
+      }).then((result) => {
+        if (result?.error) {
+          toast.error(result.error)
+        } else {
+          toast.success(result?.success ?? 'Attendance saved.')
+          setTimeout(() => {
+            fetchAttendanceForDate(selectedDate, schoolYear)
+          }, 500)
+        }
+      })
+    })
+  }
+
+  const handleDownloadCSV = () => {
+    const targetTeachers = isAllGrades ? teachers : teachersByGrade[selectedGrade] || []
+    if (targetTeachers.length === 0) {
+      toast.error('No teachers to download.')
+      return
+    }
+
+    const csvRows = targetTeachers.map((teacher) => {
+      const entry = entries.find((e) => e.teacherId === teacher.id)
+      return {
+        Grade: teacher.grade || '',
+        Section: teacher.section || '',
+        'Teacher Name': teacher.full_name,
+        Email: teacher.email || '',
+        Status: entry?.status || 'Not Recorded',
+        Comments: entry?.comments ?? '',
+      }
+    })
+
+    const csv = Papa.unparse(csvRows)
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    const gradeLabel = isAllGrades ? 'all-grades' : selectedGrade
+    link.setAttribute('download', `hscp-teacher-attendance-${gradeLabel}-${selectedDate}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success('CSV downloaded successfully.')
+  }
+
+  // ─── Teacher card renderer ─────────────────────────────
+  const renderTeacherCard = (teacher: Teacher, isMobile: boolean) => {
+    const entry = entries.find((e) => e.teacherId === teacher.id)
+    const currentStatus = entry?.status ?? ''
+    const showCommentInput = showCommentInputs[teacher.id] ?? false
+
+    const statusButtons = [
+      { status: 'present', label: 'Present', color: '#10b981' },
+      { status: 'absent', label: 'Absent', color: '#ef4444' },
+      { status: 'late', label: 'Late', color: '#f97316' },
+      { status: 'left_early', label: 'Left Early', color: '#8b5cf6' },
+    ]
+
+    return (
+      <div
+        key={teacher.id}
+        className="rounded-[12px] border border-[#e5e7eb] bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition-all duration-[400ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:translate-y-[-8px] hover:shadow-[0_20px_40px_rgba(0,0,0,0.12)] hover:border-[#6366f1]"
+      >
+        <div className={`flex ${isMobile ? 'flex-col' : 'items-center justify-between'}`}>
+          <div className={`flex-1 ${isMobile ? 'mb-3' : ''}`}>
+            <p className="font-semibold text-[#0f172a] text-base">{teacher.full_name}</p>
+            <p className="text-xs text-[#64748b] mt-0.5">
+              {teacher.grade && teacher.section ? `${teacher.grade} - ${teacher.section}` : teacher.email || ''}
+            </p>
+          </div>
+          <div className={`flex items-center gap-2 ${isMobile ? 'flex-wrap' : ''}`}>
+            {statusButtons.map((btn) => (
+              <button
+                key={btn.status}
+                type="button"
+                onClick={() => !locked && !isFutureDate && updateEntry(teacher.id, { status: btn.status as AttendanceStatus })}
+                disabled={locked || isFutureDate}
+                className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center transition-all text-sm font-medium ${
+                  currentStatus === btn.status
+                    ? `bg-white border-2 border-[${btn.color}] text-[${btn.color}]`
+                    : 'bg-white border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                style={
+                  currentStatus === btn.status
+                    ? { borderColor: btn.color, color: btn.color, borderWidth: '2px' }
+                    : undefined
+                }
+              >
+                {btn.label}
+              </button>
+            ))}
+            {/* Comment Button */}
+            <button
+              type="button"
+              onClick={() =>
+                setShowCommentInputs((prev) => ({ ...prev, [teacher.id]: !prev[teacher.id] }))
+              }
+              className={`px-3 py-1.5 rounded-[8px] flex items-center justify-center bg-white transition-all text-sm font-medium ${
+                entry?.comments && entry.comments.trim()
+                  ? 'border-2 border-[#3b82f6] text-[#3b82f6]'
+                  : 'border border-[#e5e7eb] text-[#9ca3af] hover:border-[#d1d5db]'
+              }`}
+            >
+              Comments
+            </button>
+          </div>
+        </div>
+        {showCommentInput && (
+          <div className="mt-3">
+            <Input
+              value={entry?.comments ?? ''}
+              onChange={(event) => updateEntry(teacher.id, { comments: event.target.value })}
+              placeholder="Add a comment..."
+              disabled={locked || isFutureDate}
+              className="w-full"
+            />
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ─── Grade card renderer (for All Grades view) ─────────
+  const renderGradeCard = (grade: string) => {
+    const sections = getSectionsForGrade(grade)
+    const activeTab = gradeTabSelections[grade] || sections[0] || ''
+    const sectionTeachers = getTeachersForGradeSection(grade, activeTab)
+    const allGradeTeacherIds = (teachersByGrade[grade] || []).map((t) => t.id)
+    const tabTeacherIds = sectionTeachers.map((t) => t.id)
+    const tabStats = getStatsForTeachers(tabTeacherIds)
+
+    return (
+      <Card key={grade} className="border border-[#e5e7eb] shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xl font-bold text-[#0f172a]">
+            {grade}
+            <span className="text-sm font-normal text-muted-foreground ml-2">
+              ({allGradeTeacherIds.length} teacher{allGradeTeacherIds.length !== 1 ? 's' : ''})
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {sections.length > 0 ? (
+            <div className="space-y-4">
+              {/* Section tabs */}
+              <div className="flex gap-2 border-b border-gray-200">
+                {sections.map((sec) => (
+                  <button
+                    key={sec}
+                    onClick={() =>
+                      setGradeTabSelections((prev) => ({ ...prev, [grade]: sec }))
+                    }
+                    className={`px-4 py-2 font-medium text-sm transition-colors ${
+                      activeTab === sec
+                        ? 'border-b-2 border-[#6366f1] text-[#6366f1]'
+                        : 'text-[#64748b] hover:text-[#0f172a]'
+                    }`}
+                  >
+                    {sec}
+                  </button>
+                ))}
+              </div>
+
+              {/* Statistics for current tab */}
+              <AttendanceStatistics counts={tabStats} />
+
+              {/* Teachers list */}
+              {sectionTeachers.length > 0 ? (
+                <div className="space-y-3">
+                  {/* Desktop */}
+                  <div className="hidden md:block space-y-3">
+                    {sectionTeachers.map((t) => renderTeacherCard(t, false))}
+                  </div>
+                  {/* Mobile */}
+                  <div className="md:hidden space-y-3">
+                    {sectionTeachers.map((t) => renderTeacherCard(t, true))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-center py-4">
+                  No teachers found for {grade} - {activeTab}.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-center py-4">
+              No sections found for {grade}.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ─── Loading / Error states ────────────────────────────
   if (authLoading || initialLoading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -214,30 +616,6 @@ export default function HSCPOfficerTeacherAttendancePage() {
     )
   }
 
-  const locked = Boolean(holiday) // Only lock on holidays
-  
-  // Check if selected date is in the future
-  const today = formatPacificDate(new Date())
-  const isFutureDate = selectedDate > today
-
-  const handleDateChange = (newDate: string) => {
-    // Don't allow future dates
-    if (newDate > today) {
-      return
-    }
-    setSelectedDate(newDate)
-    // Update URL without navigation
-    const newSearchParams = new URLSearchParams(searchParams)
-    newSearchParams.set('date', newDate)
-    navigate(`/hscp-officer/teacher-attendance?${newSearchParams.toString()}`, { replace: true })
-  }
-
-  // Refresh function to reload attendance after saving
-  const refreshAttendance = async () => {
-    if (teachers.length === 0) return
-    await fetchAttendanceForDate(selectedDate, schoolYear)
-  }
-
   if (teachers.length === 0 && !initialLoading) {
     return (
       <div className="space-y-3">
@@ -257,24 +635,166 @@ export default function HSCPOfficerTeacherAttendancePage() {
     )
   }
 
+  // ─── Single grade view ─────────────────────────────────
+  const renderSingleGradeView = () => {
+    const sections = getSectionsForGrade(selectedGrade)
+    const activeTab = singleGradeTab || sections[0] || ''
+    const sectionTeachers = getTeachersForGradeSection(selectedGrade, activeTab)
+    const tabTeacherIds = sectionTeachers.map((t) => t.id)
+    const tabStats = getStatsForTeachers(tabTeacherIds)
+
+    return (
+      <>
+        {sections.length > 0 ? (
+          <div className="space-y-4">
+            {/* Section tabs */}
+            <div className="flex gap-2 border-b border-gray-200">
+              {sections.map((sec) => (
+                <button
+                  key={sec}
+                  onClick={() => setSingleGradeTab(sec)}
+                  className={`px-4 py-2 font-medium text-sm transition-colors ${
+                    activeTab === sec
+                      ? 'border-b-2 border-[#6366f1] text-[#6366f1]'
+                      : 'text-[#64748b] hover:text-[#0f172a]'
+                  }`}
+                >
+                  {sec}
+                </button>
+              ))}
+            </div>
+
+            {/* Statistics */}
+            <AttendanceStatistics counts={tabStats} />
+
+            {/* Teacher list */}
+            {sectionTeachers.length > 0 ? (
+              <div className="space-y-3">
+                {/* Desktop */}
+                <div className="hidden md:block space-y-3">
+                  {sectionTeachers.map((t) => renderTeacherCard(t, false))}
+                </div>
+                {/* Mobile */}
+                <div className="md:hidden space-y-3">
+                  {sectionTeachers.map((t) => renderTeacherCard(t, true))}
+                </div>
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="pt-6">
+                  <p className="text-muted-foreground text-center">
+                    No teachers found for {selectedGrade} - {activeTab}.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-muted-foreground text-center">
+                No sections found for {selectedGrade}.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </>
+    )
+  }
+
+  // ─── Main render ───────────────────────────────────────
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
+      {/* Header */}
       <div>
         <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">
           HSCP Teacher Attendance
         </h2>
+        <p className="text-base text-muted-foreground mt-1">
+          Record and manage attendance for HSCP teachers.
+        </p>
       </div>
-      <TeacherAttendanceEditor
-        schoolYear={schoolYear}
-        attendanceDate={selectedDate}
-        teachers={teachers}
-        existing={existingAttendance}
-        locked={locked || isFutureDate}
-        holidayName={holiday?.name ?? null}
-        schoolYearDisplay={schoolYear}
-        onAttendanceSaved={refreshAttendance}
-        onDateChange={handleDateChange}
-      />
+
+      {/* School Year */}
+      <div className="space-y-1">
+        <p className="text-sm text-muted-foreground">School year: {schoolYear}</p>
+        {holiday && (
+          <p className="text-sm text-emerald-600">
+            Holiday: {holiday.name}. Attendance is not required today.
+          </p>
+        )}
+      </div>
+
+      {/* HSCP Grade Dropdown Card */}
+      <Card className="border border-[#e5e7eb] shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition-all duration-[400ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:translate-y-[-4px] hover:shadow-[0_12px_24px_rgba(0,0,0,0.10)] hover:border-[#6366f1]">
+        <CardHeader className="px-4 pt-3 pb-1">
+          <CardTitle className="text-lg mb-0 leading-none">HSCP Grade</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <select
+            value={selectedGrade}
+            onChange={(e) => handleGradeChange(e.target.value)}
+            className="flex h-10 w-full sm:w-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <option value={ALL_GRADES}>All Grades</option>
+            {availableGrades.map((grade) => (
+              <option key={grade} value={grade}>
+                {grade}
+              </option>
+            ))}
+          </select>
+        </CardContent>
+      </Card>
+
+      {/* Pick a Date Card with Save & Download buttons */}
+      <Card className="border border-[#e5e7eb] shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition-all duration-[400ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:translate-y-[-4px] hover:shadow-[0_12px_24px_rgba(0,0,0,0.10)] hover:border-[#6366f1]">
+        <CardHeader className="px-4 pt-3 pb-1">
+          <CardTitle className="text-lg mb-0 leading-none">Pick a date</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex-1 sm:max-w-[180px]">
+              <DateInput
+                value={selectedDate}
+                max={today}
+                onChange={(newDate) => handleDateChange(newDate)}
+                className="w-full"
+              />
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button onClick={handleSave} disabled={isPending || locked || isFutureDate} className="w-full sm:w-auto">
+                {isPending ? 'Saving...' : 'Save Attendance'}
+              </Button>
+              <Button onClick={handleDownloadCSV} variant="outline" className="w-full sm:w-auto">
+                <Download className="w-4 h-4 mr-2" />
+                {isAllGrades ? 'Download All CSV' : 'Download CSV'}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ─── ALL GRADES VIEW ──────────────────────────── */}
+      {isAllGrades && (
+        <>
+          {availableGrades.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-muted-foreground text-center">
+                  No HSCP grades found.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-6">
+              {availableGrades.map((grade) => renderGradeCard(grade))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ─── SINGLE GRADE VIEW ────────────────────────── */}
+      {!isAllGrades && selectedGrade && renderSingleGradeView()}
     </div>
   )
 }
