@@ -104,10 +104,6 @@ export default function HSCPOfficerTeacherAttendancePage() {
   const [showCommentInputs, setShowCommentInputs] = useState<Record<string, boolean>>({})
   const [isPending, startTransition] = useTransition()
 
-  // Tab selection per grade (for All Grades view) and for single grade
-  const [gradeTabSelections, setGradeTabSelections] = useState<Record<string, string>>({})
-  const [singleGradeTab, setSingleGradeTab] = useState<string>('')
-
   const teachersLoadedRef = useRef(false)
   const cachedSchoolYearRef = useRef<string>('2025-2026')
   const prevDateRef = useRef(selectedDate)
@@ -135,27 +131,6 @@ export default function HSCPOfficerTeacherAttendancePage() {
     })
     return map
   }, [teachers])
-
-  // Get unique sections for a grade (sorted: Conversation, Reading, Writing)
-  const getSectionsForGrade = useCallback(
-    (grade: string): string[] => {
-      const gradeTeachers = teachersByGrade[grade] || []
-      const sections = new Set<string>()
-      gradeTeachers.forEach((t) => {
-        if (t.section) sections.add(t.section)
-      })
-      return Array.from(sections).sort()
-    },
-    [teachersByGrade]
-  )
-
-  // Get teachers for a grade+section
-  const getTeachersForGradeSection = useCallback(
-    (grade: string, section: string): Teacher[] => {
-      return (teachersByGrade[grade] || []).filter((t) => t.section === section)
-    },
-    [teachersByGrade]
-  )
 
   // ─── URL sync ──────────────────────────────────────────
   useEffect(() => {
@@ -314,30 +289,6 @@ export default function HSCPOfficerTeacherAttendancePage() {
     fetchAttendanceForDate(selectedDate, cachedSchoolYearRef.current)
   }, [selectedDate, teachers, fetchAttendanceForDate])
 
-  // ─── Initialize tab selections once teachers are loaded ─
-  useEffect(() => {
-    if (availableGrades.length === 0) return
-
-    // Initialize per-grade tab selections
-    const newSelections: Record<string, string> = {}
-    availableGrades.forEach((grade) => {
-      if (!gradeTabSelections[grade]) {
-        const sections = getSectionsForGrade(grade)
-        if (sections.length > 0) newSelections[grade] = sections[0]
-      }
-    })
-    if (Object.keys(newSelections).length > 0) {
-      setGradeTabSelections((prev) => ({ ...prev, ...newSelections }))
-    }
-
-    // Initialize single grade tab
-    if (!singleGradeTab && !isAllGrades && selectedGrade) {
-      const sections = getSectionsForGrade(selectedGrade)
-      if (sections.length > 0) setSingleGradeTab(sections[0])
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableGrades, selectedGrade, isAllGrades])
-
   // ─── Entry update ──────────────────────────────────────
   const updateEntry = (teacherId: string, updates: { status?: AttendanceStatus; comments?: string }) => {
     setEntries((prev) => prev.map((e) => (e.teacherId === teacherId ? { ...e, ...updates } : e)))
@@ -365,10 +316,6 @@ export default function HSCPOfficerTeacherAttendancePage() {
 
   const handleGradeChange = (grade: string) => {
     setSelectedGrade(grade)
-    if (grade !== ALL_GRADES) {
-      const sections = getSectionsForGrade(grade)
-      setSingleGradeTab(sections.length > 0 ? sections[0] : '')
-    }
   }
 
   const locked = Boolean(holiday)
@@ -524,12 +471,9 @@ export default function HSCPOfficerTeacherAttendancePage() {
 
   // ─── Grade card renderer (for All Grades view) ─────────
   const renderGradeCard = (grade: string) => {
-    const sections = getSectionsForGrade(grade)
-    const activeTab = gradeTabSelections[grade] || sections[0] || ''
-    const sectionTeachers = getTeachersForGradeSection(grade, activeTab)
-    const allGradeTeacherIds = (teachersByGrade[grade] || []).map((t) => t.id)
-    const tabTeacherIds = sectionTeachers.map((t) => t.id)
-    const tabStats = getStatsForTeachers(tabTeacherIds)
+    const gradeTeachers = teachersByGrade[grade] || []
+    const gradeTeacherIds = gradeTeachers.map((t) => t.id)
+    const gradeStats = getStatsForTeachers(gradeTeacherIds)
 
     return (
       <Card key={grade} className="border border-[#e5e7eb] shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
@@ -537,56 +481,31 @@ export default function HSCPOfficerTeacherAttendancePage() {
           <CardTitle className="text-xl font-bold text-[#0f172a]">
             {grade}
             <span className="text-sm font-normal text-muted-foreground ml-2">
-              ({allGradeTeacherIds.length} teacher{allGradeTeacherIds.length !== 1 ? 's' : ''})
+              ({gradeTeachers.length} teacher{gradeTeachers.length !== 1 ? 's' : ''})
             </span>
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
-          {sections.length > 0 ? (
+          {gradeTeachers.length > 0 ? (
             <div className="space-y-4">
-              {/* Section tabs */}
-              <div className="flex gap-2 border-b border-gray-200">
-                {sections.map((sec) => (
-                  <button
-                    key={sec}
-                    onClick={() =>
-                      setGradeTabSelections((prev) => ({ ...prev, [grade]: sec }))
-                    }
-                    className={`px-4 py-2 font-medium text-sm transition-colors ${
-                      activeTab === sec
-                        ? 'border-b-2 border-[#6366f1] text-[#6366f1]'
-                        : 'text-[#64748b] hover:text-[#0f172a]'
-                    }`}
-                  >
-                    {sec}
-                  </button>
-                ))}
-              </div>
-
-              {/* Statistics for current tab */}
-              <AttendanceStatistics counts={tabStats} />
+              {/* Statistics for this grade */}
+              <AttendanceStatistics counts={gradeStats} />
 
               {/* Teachers list */}
-              {sectionTeachers.length > 0 ? (
-                <div className="space-y-3">
-                  {/* Desktop */}
-                  <div className="hidden md:block space-y-3">
-                    {sectionTeachers.map((t) => renderTeacherCard(t, false))}
-                  </div>
-                  {/* Mobile */}
-                  <div className="md:hidden space-y-3">
-                    {sectionTeachers.map((t) => renderTeacherCard(t, true))}
-                  </div>
+              <div className="space-y-3">
+                {/* Desktop */}
+                <div className="hidden md:block space-y-3">
+                  {gradeTeachers.map((t) => renderTeacherCard(t, false))}
                 </div>
-              ) : (
-                <p className="text-muted-foreground text-center py-4">
-                  No teachers found for {grade} - {activeTab}.
-                </p>
-              )}
+                {/* Mobile */}
+                <div className="md:hidden space-y-3">
+                  {gradeTeachers.map((t) => renderTeacherCard(t, true))}
+                </div>
+              </div>
             </div>
           ) : (
             <p className="text-muted-foreground text-center py-4">
-              No sections found for {grade}.
+              No teachers found for {grade}.
             </p>
           )}
         </CardContent>
@@ -637,68 +556,37 @@ export default function HSCPOfficerTeacherAttendancePage() {
 
   // ─── Single grade view ─────────────────────────────────
   const renderSingleGradeView = () => {
-    const sections = getSectionsForGrade(selectedGrade)
-    const activeTab = singleGradeTab || sections[0] || ''
-    const sectionTeachers = getTeachersForGradeSection(selectedGrade, activeTab)
-    const tabTeacherIds = sectionTeachers.map((t) => t.id)
-    const tabStats = getStatsForTeachers(tabTeacherIds)
+    const gradeTeachers = teachersByGrade[selectedGrade] || []
+    const gradeTeacherIds = gradeTeachers.map((t) => t.id)
+    const gradeStats = getStatsForTeachers(gradeTeacherIds)
 
     return (
-      <>
-        {sections.length > 0 ? (
-          <div className="space-y-4">
-            {/* Section tabs */}
-            <div className="flex gap-2 border-b border-gray-200">
-              {sections.map((sec) => (
-                <button
-                  key={sec}
-                  onClick={() => setSingleGradeTab(sec)}
-                  className={`px-4 py-2 font-medium text-sm transition-colors ${
-                    activeTab === sec
-                      ? 'border-b-2 border-[#6366f1] text-[#6366f1]'
-                      : 'text-[#64748b] hover:text-[#0f172a]'
-                  }`}
-                >
-                  {sec}
-                </button>
-              ))}
+      <div className="space-y-4">
+        {/* Statistics */}
+        <AttendanceStatistics counts={gradeStats} />
+
+        {/* Teacher list */}
+        {gradeTeachers.length > 0 ? (
+          <div className="space-y-3">
+            {/* Desktop */}
+            <div className="hidden md:block space-y-3">
+              {gradeTeachers.map((t) => renderTeacherCard(t, false))}
             </div>
-
-            {/* Statistics */}
-            <AttendanceStatistics counts={tabStats} />
-
-            {/* Teacher list */}
-            {sectionTeachers.length > 0 ? (
-              <div className="space-y-3">
-                {/* Desktop */}
-                <div className="hidden md:block space-y-3">
-                  {sectionTeachers.map((t) => renderTeacherCard(t, false))}
-                </div>
-                {/* Mobile */}
-                <div className="md:hidden space-y-3">
-                  {sectionTeachers.map((t) => renderTeacherCard(t, true))}
-                </div>
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="pt-6">
-                  <p className="text-muted-foreground text-center">
-                    No teachers found for {selectedGrade} - {activeTab}.
-                  </p>
-                </CardContent>
-              </Card>
-            )}
+            {/* Mobile */}
+            <div className="md:hidden space-y-3">
+              {gradeTeachers.map((t) => renderTeacherCard(t, true))}
+            </div>
           </div>
         ) : (
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center">
-                No sections found for {selectedGrade}.
+                No teachers found for {selectedGrade}.
               </p>
             </CardContent>
           </Card>
         )}
-      </>
+      </div>
     )
   }
 
