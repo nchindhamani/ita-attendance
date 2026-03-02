@@ -3,9 +3,13 @@ import { Users } from 'lucide-react'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { Sidebar } from '@/features/navigation/Sidebar'
 import { BottomNav } from '@/features/navigation/BottomNav'
+import { useInactivityLogout } from '@/hooks/useInactivityLogout'
 
 export default function DashboardLayout() {
   const { profile, loading } = useRequireActiveProfile()
+
+  // Auto-logout after 15 minutes of inactivity
+  useInactivityLogout()
 
   if (loading || !profile) {
     return (
