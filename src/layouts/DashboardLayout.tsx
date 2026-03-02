@@ -23,12 +23,15 @@ export default function DashboardLayout() {
           { href: "/admin/users", label: "User Management" },
           { href: "/admin/attendance", label: "Attendance" },
           { href: "/admin/student-attendance", label: "Student Lookup" },
+          { href: "/admin/staff-attendance", label: "Record Volunteer/Staff Attendance" },
           { href: "/admin/archive", label: "Archive" },
           { href: "/profile", label: "Profile" },
         ]
       case "principal":
         return [
           { href: "/principal", label: "Overview" },
+          { href: "/principal/staff-attendance", label: "Record Volunteer/Staff Attendance" },
+          { href: "/principal/staff-management", label: "Staff Management" },
           { href: "/principal/student-attendance", label: "Student Attendance" },
           { href: "/principal/teacher-attendance", label: "Teacher Attendance" },
           { href: "/principal/users", label: "User Profiles" },
@@ -46,7 +49,8 @@ export default function DashboardLayout() {
           // { href: "/hscp-officer", label: "Overview" },
           { href: "/hscp-officer/teacher-attendance", label: "HSCP Teacher Attendance" },
           { href: "/hscp-officer/users", label: "HSCP Teacher Management" },
-          { href: "/hscp-officer/hscp-student-attendance", label: "HSCP Student Attendance" },
+          { href: "/hscp-officer/hscp-student-attendance", label: "View Student Attendance" },
+          { href: "/hscp-officer/record-student-attendance", label: "Record Student Attendance" },
           { href: "/hscp-officer/student-attendance", label: "HSCP Student Lookup" },
           { href: "/profile", label: "Profile" },
         ]

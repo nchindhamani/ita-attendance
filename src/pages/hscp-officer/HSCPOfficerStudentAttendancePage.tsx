@@ -4,7 +4,12 @@ import { useRequireRole } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { StudentAttendanceSearch } from '@/features/admin/StudentAttendanceSearch'
+import { toast } from 'sonner'
+import { UserPlus } from 'lucide-react'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -44,6 +49,52 @@ export default function HSCPOfficerStudentAttendancePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [hscpSections, setHscpSections] = useState<HSCPSection[]>([])
   const [selectedHscpTab, setSelectedHscpTab] = useState<string>('Reading')
+
+  // Add Student Dialog state
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [availableHscpGrades, setAvailableHscpGrades] = useState<string[]>([])
+  const [newStudentGrade, setNewStudentGrade] = useState('')
+  const [newStudentId, setNewStudentId] = useState('')
+  const [newStudentName, setNewStudentName] = useState('')
+  const [addingStudent, setAddingStudent] = useState(false)
+  const [currentSchoolYear, setCurrentSchoolYear] = useState('2025-2026')
+
+  // Fetch current school year and available HSCP grades on mount
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        // Get current school year
+        const { data: settings } = await supabase
+          .from('system_settings')
+          .select('current_school_year')
+          .eq('id', 1)
+          .maybeSingle()
+
+        const sy = settings?.current_school_year || '2025-2026'
+        setCurrentSchoolYear(sy)
+
+        // Fetch available HSCP grades
+        const { data: sectionsData } = await supabase
+          .from('sections')
+          .select('grade')
+          .like('grade', 'HSCP-%')
+          .eq('school_year', sy)
+          .order('grade', { ascending: true })
+
+        if (sectionsData) {
+          const gradeSet = new Set<string>()
+          sectionsData.forEach((s) => {
+            if (s.grade) gradeSet.add(s.grade)
+          })
+          setAvailableHscpGrades(Array.from(gradeSet).sort())
+        }
+      } catch (err) {
+        console.error('Error fetching initial data:', err)
+      }
+    }
+
+    fetchInitialData()
+  }, [])
 
   // Fetch available years when studentId is provided (only for HSCP sections)
   useEffect(() => {
@@ -212,15 +263,89 @@ export default function HSCPOfficerStudentAttendancePage() {
     fetchStudentData()
   }, [studentIdInput, yearInput])
 
+  // Handle Add Student
+  const handleAddStudent = async () => {
+    if (!newStudentGrade) {
+      toast.error('Please select an HSCP grade.')
+      return
+    }
+    if (!newStudentId.trim()) {
+      toast.error('Please enter a Student ID.')
+      return
+    }
+    if (!newStudentName.trim()) {
+      toast.error('Please enter the student name.')
+      return
+    }
+
+    const studentIdNum = Number(newStudentId.trim())
+    if (!Number.isInteger(studentIdNum) || studentIdNum <= 0) {
+      toast.error('Student ID must be a positive number.')
+      return
+    }
+
+    setAddingStudent(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated. Please sign in again.')
+        setAddingStudent(false)
+        return
+      }
+
+      const response = await fetch('/api/hscp-students', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          grade: newStudentGrade,
+          schoolYear: currentSchoolYear,
+          studentIdentifier: newStudentId.trim(),
+          fullName: newStudentName.trim(),
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || data.detail || 'Failed to add student.')
+      } else {
+        toast.success(data.success || 'Student added successfully.')
+        // Reset form and close dialog
+        setNewStudentGrade('')
+        setNewStudentId('')
+        setNewStudentName('')
+        setAddDialogOpen(false)
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'An error occurred.')
+    } finally {
+      setAddingStudent(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">
-          HSCP Student Attendance Lookup
-        </h2>
-        <p className="text-base text-muted-foreground">
-          Search for student attendance records in HSCP sections (read-only).
-        </p>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-1">
+              HSCP Student Attendance Lookup
+            </h2>
+            <p className="text-base text-muted-foreground">
+              Search for student attendance records in HSCP sections (read-only).
+            </p>
+          </div>
+          <Button
+            onClick={() => setAddDialogOpen(true)}
+            className="flex items-center gap-2"
+          >
+            <UserPlus className="w-4 h-4" />
+            Add Student
+          </Button>
+        </div>
       </div>
 
       <StudentAttendanceSearch 
@@ -256,7 +381,7 @@ export default function HSCPOfficerStudentAttendancePage() {
               <p><strong>Name:</strong> {student.full_name}</p>
               <p><strong>Student ID:</strong> {student.student_identifier}</p>
               {sectionInfo && (
-                <p><strong>Section:</strong> {sectionInfo.grade}/{sectionInfo.section}</p>
+                <p><strong>Grade:</strong> {sectionInfo.grade}</p>
               )}
               <p><strong>School Year:</strong> {yearInput}</p>
             </CardContent>
@@ -353,8 +478,77 @@ export default function HSCPOfficerStudentAttendancePage() {
           </Card>
         </div>
       )}
+
+      {/* Add HSCP Student Dialog */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Add HSCP Student</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="hscp-grade">HSCP Grade *</Label>
+              <select
+                id="hscp-grade"
+                value={newStudentGrade}
+                onChange={(e) => setNewStudentGrade(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="">Select a grade</option>
+                {availableHscpGrades.map((grade) => (
+                  <option key={grade} value={grade}>
+                    {grade}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="student-id">Student ID *</Label>
+              <Input
+                id="student-id"
+                type="number"
+                value={newStudentId}
+                onChange={(e) => setNewStudentId(e.target.value)}
+                placeholder="e.g., 3434"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="student-name">Student Name *</Label>
+              <Input
+                id="student-name"
+                value={newStudentName}
+                onChange={(e) => setNewStudentName(e.target.value)}
+                placeholder="e.g., John Doe"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The student will be added to all sections (Reading, Writing, Conversation) of the selected HSCP grade.
+              School Year: {currentSchoolYear}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setAddDialogOpen(false)
+                setNewStudentGrade('')
+                setNewStudentId('')
+                setNewStudentName('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleAddStudent}
+              disabled={addingStudent}
+            >
+              {addingStudent ? 'Adding...' : 'Add Student'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-
-

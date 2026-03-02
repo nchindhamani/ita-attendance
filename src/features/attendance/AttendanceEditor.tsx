@@ -8,6 +8,7 @@ import { formatPacificDate } from "@/lib/time";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AttendanceStatus } from "@/lib/types";
 // TODO: Convert these to API calls to /api/attendance
@@ -144,7 +145,7 @@ export function AttendanceEditor({
   const initialEntries = useMemo(() => {
     return students.map((student) => ({
       studentId: student.id,
-      status: existing[student.id]?.status ?? "present",
+      status: existing[student.id]?.status ?? "",
       comments: existing[student.id]?.comments ?? "",
     }));
   }, [students, existing]);
@@ -187,12 +188,18 @@ export function AttendanceEditor({
       toast.error("Cannot save attendance for this date.");
       return;
     }
+    // Filter to only entries with an explicitly set status
+    const entriesToSave = entries.filter((e) => e.status !== "");
+    if (entriesToSave.length === 0) {
+      toast.error("Please set attendance status for at least one student before saving.");
+      return;
+    }
     startTransition(() => {
       saveAttendance({
         sectionId,
         attendanceDate,
         schoolYear,
-        entries,
+        entries: entriesToSave,
       }).then((result) => {
         if (result?.error) {
           toast.error(result.error);
@@ -215,7 +222,7 @@ export function AttendanceEditor({
       return {
         "Student Name": student.full_name,
         "Student ID": student.student_identifier ?? "",
-        "Status": entry?.status ?? "present",
+        "Status": entry?.status || "Not Recorded",
         "Comments": entry?.comments ?? "",
       };
     });
@@ -262,12 +269,10 @@ export function AttendanceEditor({
         <CardContent className="px-4 -mt-3 pb-4">
           <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex-1 sm:max-w-[180px]">
-              <Input
-                type="date"
+              <DateInput
                 value={attendanceDate}
                 max={maxDate}
-                onChange={(e) => {
-                  const newDate = e.target.value;
+                onChange={(newDate) => {
                   if (newDate <= maxDate && onDateChange) {
                     onDateChange(newDate);
                   }
@@ -299,7 +304,7 @@ export function AttendanceEditor({
         <div className="space-y-3">
           {students.map((student) => {
             const entry = entries.find((item) => item.studentId === student.id);
-            const currentStatus = entry?.status ?? "present";
+            const currentStatus = entry?.status ?? "";
             const showCommentInput = showCommentInputs[student.id] ?? false;
             
             return (
@@ -422,7 +427,7 @@ export function AttendanceEditor({
       <div className="space-y-3 md:hidden">
         {students.map((student) => {
           const entry = entries.find((item) => item.studentId === student.id);
-          const currentStatus = entry?.status ?? "present";
+          const currentStatus = entry?.status ?? "";
           const showCommentInput = showCommentInputs[student.id] ?? false;
           
           return (

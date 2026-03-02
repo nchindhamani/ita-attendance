@@ -5,18 +5,16 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-// Button import available if needed
-// import { Button } from '@/components/ui/button'
-import { TeacherAttendanceEditor } from '@/features/attendance/TeacherAttendanceEditor'
+import { OtherStaffAttendanceEditor } from '@/features/attendance/OtherStaffAttendanceEditor'
 
 const supabase = createSupabaseBrowserClient()
 
-type Teacher = {
+type StaffMember = {
   id: string
   full_name: string
   email: string | null
-  grade: string | null
-  section: string | null
+  role: string
+  description: string | null
 }
 
 type Holiday = {
@@ -24,20 +22,20 @@ type Holiday = {
   name: string
 }
 
-export default function HSCPOfficerTeacherAttendancePage() {
+export default function PrincipalStaffAttendancePage() {
   const { profile, loading: authLoading } = useRequireActiveProfile()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const dateParam = searchParams.get('date')
   const [initialLoading, setInitialLoading] = useState(true)
-  const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
   const [existingAttendance, setExistingAttendance] = useState<Record<string, { status: AttendanceStatus; comments?: string | null }>>({})
   const [holiday, setHoliday] = useState<Holiday | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [schoolYear, setSchoolYear] = useState<string>('2025-2026')
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
-  const teachersLoadedRef = useRef(false)
-  const cachedTeachersRef = useRef<Teacher[]>([])
+  const staffLoadedRef = useRef(false)
+  const cachedStaffRef = useRef<StaffMember[]>([])
   const cachedSchoolYearRef = useRef<string>('2025-2026')
 
   // Update URL if date param is missing
@@ -46,9 +44,10 @@ export default function HSCPOfficerTeacherAttendancePage() {
       const today = formatPacificDate(new Date())
       const newSearchParams = new URLSearchParams(searchParams)
       newSearchParams.set('date', today)
-      navigate(`/hscp-officer/teacher-attendance?${newSearchParams.toString()}`, { replace: true })
+      const basePath = profile?.role === 'admin' ? '/admin/staff-attendance' : '/principal/staff-attendance'
+      navigate(`${basePath}?${newSearchParams.toString()}`, { replace: true })
     }
-  }, [dateParam, searchParams, navigate])
+  }, [dateParam, searchParams, navigate, profile])
 
   // Fetch attendance data for a given date (reusable)
   const fetchAttendanceForDate = useCallback(async (date: string, currentSchoolYear: string) => {
@@ -67,9 +66,7 @@ export default function HSCPOfficerTeacherAttendancePage() {
       setHoliday(holidayData || null)
 
       // Fetch existing attendance for selected date using API endpoint
-      console.log(`Fetching attendance for date ${date} via API`)
-      
-      const response = await fetch(`/api/teacher-attendance?date=${date}`, {
+      const response = await fetch(`/api/other-staff-attendance?date=${date}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -78,18 +75,16 @@ export default function HSCPOfficerTeacherAttendancePage() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to fetch attendance' }))
-        console.error('Error fetching teacher attendance:', errorData)
+        console.error('Error fetching staff attendance')
         setExistingAttendance({})
       } else {
         const data = await response.json()
-        console.log(`Fetched attendance for ${date}:`, data)
         
         if (data.attendance && Array.isArray(data.attendance) && data.attendance.length > 0) {
           const existing = data.attendance.reduce(
             (acc: Record<string, { status: AttendanceStatus; comments?: string | null }>, entry: any) => {
-              if (entry && entry.teacher_id) {
-                acc[entry.teacher_id] = {
+              if (entry && entry.staff_id) {
+                acc[entry.staff_id] = {
                   status: entry.status as AttendanceStatus,
                   comments: entry.comments ?? '',
                 }
@@ -98,10 +93,8 @@ export default function HSCPOfficerTeacherAttendancePage() {
             },
             {} as Record<string, { status: AttendanceStatus; comments?: string | null }>
           )
-          console.log('Processed existing attendance:', existing)
           setExistingAttendance(existing)
         } else {
-          console.log('No attendance data found for date:', date, '(empty array)')
           setExistingAttendance({})
         }
       }
@@ -110,10 +103,10 @@ export default function HSCPOfficerTeacherAttendancePage() {
     }
   }, [])
 
-  // Initial load: fetch teachers and school year (only once)
+  // Initial load: fetch staff and school year (only once)
   useEffect(() => {
     if (authLoading || !profile) return
-    if (teachersLoadedRef.current) return
+    if (staffLoadedRef.current) return
 
     const fetchInitialData = async () => {
       setInitialLoading(true)
@@ -125,7 +118,7 @@ export default function HSCPOfficerTeacherAttendancePage() {
           throw new Error('Not authenticated')
         }
 
-        // Get current school year from settings or default
+        // Get current school year from settings
         const { data: settings } = await supabase
           .from('system_settings')
           .select('current_school_year')
@@ -136,7 +129,7 @@ export default function HSCPOfficerTeacherAttendancePage() {
         setSchoolYear(currentSchoolYear)
         cachedSchoolYearRef.current = currentSchoolYear
 
-        // Fetch HSCP teachers from backend API
+        // Fetch all users from backend API
         const response = await fetch('/api/admin/users', {
           method: 'GET',
           headers: {
@@ -146,33 +139,35 @@ export default function HSCPOfficerTeacherAttendancePage() {
         })
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Failed to fetch teachers' }))
-          throw new Error(errorData.error || errorData.detail || 'Failed to fetch teachers')
+          const errorData = await response.json().catch(() => ({ error: 'Failed to fetch staff' }))
+          throw new Error(errorData.error || errorData.detail || 'Failed to fetch staff')
         }
 
         const data = await response.json()
         const allUsers = data.users || []
 
-        const hscpTeachers = allUsers
+        // Filter: non-teacher, non-principal, approved, active staff
+        const otherStaff = allUsers
           .filter((user: any) => {
-            const grade = user.grade?.toUpperCase() || ''
-            return user.role === 'teacher' && user.is_approved && grade.startsWith('HSCP')
+            return user.is_approved && 
+                   user.is_active &&
+                   user.role !== 'teacher' && 
+                   user.role !== 'principal'
           })
           .map((user: any) => ({
             id: user.id,
             full_name: user.full_name || '',
             email: user.email,
-            grade: user.grade || null,
-            section: user.section || null,
+            role: user.role || '',
+            description: user.description || null,
           }))
 
-        console.log('Fetched HSCP teachers:', hscpTeachers.length, hscpTeachers)
-        setTeachers(hscpTeachers)
-        cachedTeachersRef.current = hscpTeachers
-        teachersLoadedRef.current = true
+        setStaffMembers(otherStaff)
+        cachedStaffRef.current = otherStaff
+        staffLoadedRef.current = true
 
         // Fetch attendance for the initial date
-        if (hscpTeachers.length > 0) {
+        if (otherStaff.length > 0) {
           await fetchAttendanceForDate(selectedDate, currentSchoolYear)
         }
       } catch (err) {
@@ -185,10 +180,10 @@ export default function HSCPOfficerTeacherAttendancePage() {
     fetchInitialData()
   }, [profile, authLoading, selectedDate, fetchAttendanceForDate])
 
-  // When date changes after initial load, only re-fetch attendance (not teachers)
+  // When date changes after initial load, only re-fetch attendance (not staff)
   useEffect(() => {
-    if (!teachersLoadedRef.current) return
-    if (cachedTeachersRef.current.length === 0) return
+    if (!staffLoadedRef.current) return
+    if (cachedStaffRef.current.length === 0) return
 
     fetchAttendanceForDate(selectedDate, cachedSchoolYearRef.current)
   }, [selectedDate, fetchAttendanceForDate])
@@ -214,42 +209,37 @@ export default function HSCPOfficerTeacherAttendancePage() {
     )
   }
 
-  const locked = Boolean(holiday) // Only lock on holidays
+  const locked = Boolean(holiday)
   
-  // Check if selected date is in the future
   const today = formatPacificDate(new Date())
   const isFutureDate = selectedDate > today
 
   const handleDateChange = (newDate: string) => {
-    // Don't allow future dates
-    if (newDate > today) {
-      return
-    }
+    if (newDate > today) return
     setSelectedDate(newDate)
-    // Update URL without navigation
     const newSearchParams = new URLSearchParams(searchParams)
     newSearchParams.set('date', newDate)
-    navigate(`/hscp-officer/teacher-attendance?${newSearchParams.toString()}`, { replace: true })
+    const basePath = profile?.role === 'admin' ? '/admin/staff-attendance' : '/principal/staff-attendance'
+    navigate(`${basePath}?${newSearchParams.toString()}`, { replace: true })
   }
 
-  // Refresh function to reload attendance after saving
   const refreshAttendance = async () => {
-    if (teachers.length === 0) return
+    if (staffMembers.length === 0) return
     await fetchAttendanceForDate(selectedDate, schoolYear)
   }
 
-  if (teachers.length === 0 && !initialLoading) {
+  if (staffMembers.length === 0 && !initialLoading) {
     return (
       <div className="space-y-3">
         <div>
           <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">
-            HSCP Teacher Attendance
+            Record Volunteer/Staff Attendance
           </h2>
         </div>
         <Card>
           <CardContent className="pt-6">
             <p className="text-muted-foreground text-center">
-              No HSCP teachers found. Please ensure HSCP teachers are created and approved.
+              No volunteers or staff found. Please ensure staff members are created and approved.
             </p>
           </CardContent>
         </Card>
@@ -261,13 +251,13 @@ export default function HSCPOfficerTeacherAttendancePage() {
     <div className="space-y-3">
       <div>
         <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">
-          HSCP Teacher Attendance
+          Record Volunteer/Staff Attendance
         </h2>
       </div>
-      <TeacherAttendanceEditor
+      <OtherStaffAttendanceEditor
         schoolYear={schoolYear}
         attendanceDate={selectedDate}
-        teachers={teachers}
+        staffMembers={staffMembers}
         existing={existingAttendance}
         locked={locked || isFutureDate}
         holidayName={holiday?.name ?? null}
@@ -278,3 +268,4 @@ export default function HSCPOfficerTeacherAttendancePage() {
     </div>
   )
 }
+

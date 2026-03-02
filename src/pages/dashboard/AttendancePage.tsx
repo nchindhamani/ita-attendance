@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -43,13 +43,16 @@ export default function AttendancePage() {
   const sectionId = searchParams.get('section')
   const dateParam = searchParams.get('date')
   console.log('Section ID:', sectionId, 'Profile:', profile)
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [section, setSection] = useState<Section | null>(null)
   const [students, setStudents] = useState<Student[]>([])
   const [existingAttendance, setExistingAttendance] = useState<Record<string, { status: AttendanceStatus; comments?: string | null }>>({})
   const [holiday, setHoliday] = useState<Holiday | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
+  const sectionLoadedRef = useRef(false)
+  const cachedSectionRef = useRef<Section | null>(null)
+  const cachedStudentIdsRef = useRef<string[]>([])
 
   // Update URL if date param is missing
   useEffect(() => {
@@ -135,18 +138,66 @@ export default function AttendancePage() {
     return studentsData ?? []
   }
 
-  // Fetch section data, students, and attendance
+  // Fetch attendance + holiday for a given date (reusable)
+  const fetchAttendanceForDate = useCallback(async (date: string, sectionData: Section, studentIds: string[]) => {
+    try {
+      // Check for holiday
+      const { data: holidayData } = await supabase
+        .from('holidays')
+        .select('holiday_date,name')
+        .eq('school_year', sectionData.school_year ?? '')
+        .eq('holiday_date', date)
+        .maybeSingle()
+
+      setHoliday(holidayData || null)
+
+      // Fetch existing attendance for this specific section and selected date
+      if (studentIds.length > 0) {
+        const { data: attendanceData } = await supabase
+          .from('student_attendance')
+          .select('student_id,status,comments')
+          .eq('attendance_date', date)
+          .eq('section_id', sectionData.id)
+          .in('student_id', studentIds)
+
+        const existing = (attendanceData ?? []).reduce(
+          (acc, entry) => {
+            acc[entry.student_id] = {
+              status: entry.status as AttendanceStatus,
+              comments: entry.comments ?? '',
+            }
+            return acc
+          },
+          {} as Record<string, { status: AttendanceStatus; comments?: string | null }>
+        )
+
+        setExistingAttendance(existing)
+      } else {
+        setExistingAttendance({})
+      }
+    } catch (err) {
+      console.error('Error fetching attendance:', err)
+    }
+  }, [])
+
+  // Initial load: fetch section data and students (only once per sectionId)
   useEffect(() => {
     if (authLoading || !profile || !sectionId) {
       if (!sectionId && profile && profile.role !== 'teacher') {
-        setLoading(false)
+        setInitialLoading(false)
       }
       return
     }
 
-    const fetchData = async () => {
-      setLoading(true)
+    // Reset if sectionId changed
+    if (sectionLoadedRef.current && cachedSectionRef.current?.id === sectionId) {
+      return
+    }
+
+    const fetchInitialData = async () => {
+      setInitialLoading(true)
       setError(null)
+      sectionLoadedRef.current = false
 
       try {
         // Fetch section data
@@ -158,68 +209,47 @@ export default function AttendancePage() {
 
         if (sectionError || !sectionData) {
           setError('Section not found')
-          setLoading(false)
+          setInitialLoading(false)
           return
         }
 
         setSection(sectionData)
-
-        // Check for holiday
-        const { data: holidayData } = await supabase
-          .from('holidays')
-          .select('holiday_date,name')
-          .eq('school_year', sectionData.school_year ?? '')
-          .eq('holiday_date', selectedDate)
-          .maybeSingle()
-
-        if (holidayData) {
-          setHoliday(holidayData)
-        }
+        cachedSectionRef.current = sectionData
 
         // Fetch students
         const studentsData = await fetchStudents(sectionData)
         if (studentsData === null) {
           setError('Failed to load students')
-          setLoading(false)
+          setInitialLoading(false)
           return
         }
 
         setStudents(studentsData)
+        const studentIds = studentsData.map(s => s.id)
+        cachedStudentIdsRef.current = studentIds
+        sectionLoadedRef.current = true
 
-        // Fetch existing attendance for this specific section and selected date
-        const studentIds = (studentsData ?? []).map(s => s.id)
-        if (studentIds.length > 0) {
-          const { data: attendanceData } = await supabase
-            .from('student_attendance')
-            .select('student_id,status,comments')
-            .eq('attendance_date', selectedDate)
-            .eq('section_id', sectionId)
-            .in('student_id', studentIds)
-
-          const existing = (attendanceData ?? []).reduce(
-            (acc, entry) => {
-              acc[entry.student_id] = {
-                status: entry.status as AttendanceStatus,
-                comments: entry.comments ?? '',
-              }
-              return acc
-            },
-            {} as Record<string, { status: AttendanceStatus; comments?: string | null }>
-          )
-
-          setExistingAttendance(existing)
-        }
+        // Fetch attendance for the initial date
+        await fetchAttendanceForDate(selectedDate, sectionData, studentIds)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred')
       } finally {
-        setLoading(false)
+        setInitialLoading(false)
       }
     }
 
-    fetchData()
-  }, [sectionId, selectedDate, profile, authLoading])
+    fetchInitialData()
+  }, [sectionId, profile, authLoading, selectedDate, fetchAttendanceForDate])
 
-  if (authLoading || loading) {
+  // When date changes after initial load, only re-fetch attendance (not section/students)
+  useEffect(() => {
+    if (!sectionLoadedRef.current) return
+    if (!cachedSectionRef.current) return
+
+    fetchAttendanceForDate(selectedDate, cachedSectionRef.current, cachedStudentIdsRef.current)
+  }, [selectedDate, fetchAttendanceForDate])
+
+  if (authLoading || initialLoading) {
     return (
       <div className="flex items-center justify-center p-8">
         <p className="text-muted-foreground">Loading...</p>

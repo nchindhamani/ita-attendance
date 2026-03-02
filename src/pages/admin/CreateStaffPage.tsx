@@ -20,9 +20,10 @@ const supabase = createSupabaseBrowserClient()
 
 type CreateStaffPageProps = {
   onStaffCreated: () => void
+  basePath?: string  // e.g., '/admin/users' or '/principal/staff-management'
 }
 
-export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
+export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: CreateStaffPageProps) {
   const navigate = useNavigate()
   const [formData, setFormData] = useState({
     full_name: '',
@@ -32,6 +33,7 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
     grade: '',
     section: '',
     room_number: '',
+    description: '',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
@@ -61,6 +63,14 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
         }
       }
 
+      // For volunteers, description is required
+      if (formData.role === 'volunteer') {
+        if (!formData.description.trim()) {
+          toast.error('Description is required for volunteers')
+          return
+        }
+      }
+
       // Get session for authentication
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
@@ -76,6 +86,7 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
         grade: formData.grade.trim() || null,
         section: formData.section.trim() || null,
         room_number: formData.room_number.trim() || null,
+        description: formData.description.trim() || null,
       }
 
       // Email is optional
@@ -122,6 +133,7 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
         grade: '',
         section: '',
         room_number: '',
+        description: '',
       })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create staff'
@@ -133,6 +145,7 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
   }
 
   const isTeacher = formData.role === 'teacher'
+  const isVolunteer = formData.role === 'volunteer'
 
   return (
     <Card>
@@ -167,6 +180,7 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
                 <SelectItem value="principal">Principal</SelectItem>
                 <SelectItem value="attendance_officer">Attendance Officer</SelectItem>
                 <SelectItem value="hscp_officer">HSCP Officer</SelectItem>
+                <SelectItem value="volunteer">Volunteer</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -235,6 +249,34 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
             </>
           )}
 
+          {isVolunteer && (
+            <div className="space-y-2">
+              <Label htmlFor="description">Description *</Label>
+              <Input
+                id="description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="e.g., Parent Helper, Community Volunteer"
+                required={isVolunteer}
+              />
+              <p className="text-xs text-muted-foreground">
+                This will be displayed as "Volunteer - Description" in staff directories.
+              </p>
+            </div>
+          )}
+
+          {!isTeacher && !isVolunteer && (
+            <div className="space-y-2">
+              <Label htmlFor="description">Description (Optional)</Label>
+              <Input
+                id="description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Optional description or title"
+              />
+            </div>
+          )}
+
           <div className="flex gap-4">
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Creating...' : 'Create Staff'}
@@ -251,6 +293,7 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
                   grade: '',
                   section: '',
                   room_number: '',
+                  description: '',
                 })
               }}
             >
@@ -267,12 +310,12 @@ export function CreateStaffPage({ onStaffCreated }: CreateStaffPageProps) {
             setShowPasswordDialog(open)
             // Navigate after dialog closes (when OK is clicked)
             if (!open) {
-              if (createdUserId) {
+              if (createdUserId && basePath === '/admin/users') {
                 navigate(`/admin/users/${createdUserId}`)
               } else {
                 // Fallback: go to directory
                 onStaffCreated()
-                navigate('/admin/users?tab=directory')
+                navigate(`${basePath}?tab=directory`)
               }
             }
           }}

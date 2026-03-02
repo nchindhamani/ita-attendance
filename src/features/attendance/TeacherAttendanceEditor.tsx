@@ -8,6 +8,7 @@ import { formatPacificDate } from "@/lib/time";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AttendanceStatistics } from "./AttendanceStatistics";
 import type { AttendanceStatus } from "@/lib/types";
@@ -118,7 +119,7 @@ export function TeacherAttendanceEditor({
   const initialEntries = useMemo(() => {
     return teachers.map((teacher) => ({
       teacherId: teacher.id,
-      status: existing[teacher.id]?.status ?? "present",
+      status: existing[teacher.id]?.status ?? "",
       comments: existing[teacher.id]?.comments ?? "",
     }));
   }, [teachers, existing]);
@@ -139,21 +140,9 @@ export function TeacherAttendanceEditor({
       // Only update if entries are empty (initial load)
       console.log('Initial load, setting entries:', initialEntries);
       setEntries(initialEntries);
-    } else if (Object.keys(existing).length > 0 && entries.length > 0) {
-      // If we have existing data and entries, make sure they match
-      const needsUpdate = entries.some(entry => {
-        const existingEntry = existing[entry.teacherId];
-        return existingEntry && (
-          entry.status !== existingEntry.status || 
-          entry.comments !== (existingEntry.comments || '')
-        );
-      });
-      if (needsUpdate) {
-        console.log('Existing data changed, updating entries:', initialEntries);
-        setEntries(initialEntries);
-      }
     }
-  }, [initialEntries, attendanceDate, existing, teachers, entries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEntries, attendanceDate, teachers]);
 
   const updateEntry = (teacherId: string, updates: { status?: AttendanceStatus; comments?: string }) => {
     setEntries((prev) =>
@@ -184,12 +173,18 @@ export function TeacherAttendanceEditor({
       toast.error("Cannot save attendance for this date.");
       return;
     }
-    console.log('Saving teacher attendance:', { attendanceDate, schoolYear, entries });
+    // Filter to only entries with an explicitly set status
+    const entriesToSave = entries.filter((e) => e.status !== "");
+    if (entriesToSave.length === 0) {
+      toast.error("Please set attendance status for at least one teacher before saving.");
+      return;
+    }
+    console.log('Saving teacher attendance:', { attendanceDate, schoolYear, entries: entriesToSave });
     startTransition(() => {
       saveTeacherAttendance({
         attendanceDate,
         schoolYear,
-        entries,
+        entries: entriesToSave,
       }).then((result) => {
         console.log('Save result:', result);
         
@@ -224,7 +219,7 @@ export function TeacherAttendanceEditor({
         "Email": teacher.email || "",
         "Grade": teacher.grade || "",
         "Section": teacher.section || "",
-        "Status": entry?.status ?? "present",
+        "Status": entry?.status || "Not Recorded",
         "Comments": entry?.comments ?? "",
       };
     });
@@ -270,12 +265,10 @@ export function TeacherAttendanceEditor({
         <CardContent className="px-4 -mt-3 pb-4">
           <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex-1 sm:max-w-[180px]">
-              <Input
-                type="date"
+              <DateInput
                 value={attendanceDate}
                 max={maxDate}
-                onChange={(e) => {
-                  const newDate = e.target.value;
+                onChange={(newDate) => {
                   if (newDate <= maxDate && onDateChange) {
                     onDateChange(newDate);
                   }
@@ -307,7 +300,7 @@ export function TeacherAttendanceEditor({
         <div className="space-y-3">
           {teachers.map((teacher) => {
             const entry = entries.find((item) => item.teacherId === teacher.id);
-            const currentStatus = entry?.status ?? "present";
+            const currentStatus = entry?.status ?? "";
             const showCommentInput = showCommentInputs[teacher.id] ?? false;
             
             return (
@@ -431,7 +424,7 @@ export function TeacherAttendanceEditor({
       <div className="space-y-3 md:hidden">
         {teachers.map((teacher) => {
           const entry = entries.find((item) => item.teacherId === teacher.id);
-          const currentStatus = entry?.status ?? "present";
+          const currentStatus = entry?.status ?? "";
           const showCommentInput = showCommentInputs[teacher.id] ?? false;
           
           return (

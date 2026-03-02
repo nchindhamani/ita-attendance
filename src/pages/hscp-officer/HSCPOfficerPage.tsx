@@ -56,11 +56,23 @@ export default function HSCPOfficerPage() {
         <Link to="/hscp-officer/hscp-student-attendance">
           <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
-              <CardTitle>HSCP Student Attendance</CardTitle>
+              <CardTitle>View Student Attendance</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 View all HSCP student attendance by grade and date.
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link to="/hscp-officer/record-student-attendance">
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle>Record Student Attendance</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Record and edit HSCP student attendance by grade and section.
               </p>
             </CardContent>
           </Card>

@@ -36,6 +36,8 @@ import PrincipalPage from './pages/principal/PrincipalPage'
 import PrincipalStudentAttendancePage from './pages/principal/PrincipalStudentAttendancePage'
 import PrincipalTeacherAttendancePage from './pages/principal/PrincipalTeacherAttendancePage'
 import PrincipalUsersPage from './pages/principal/PrincipalUsersPage'
+import PrincipalStaffAttendancePage from './pages/principal/PrincipalStaffAttendancePage'
+import PrincipalStaffManagementPage from './pages/principal/PrincipalStaffManagementPage'
 
 // Attendance Officer pages
 import AttendanceOfficerPage from './pages/attendance-officer/AttendanceOfficerPage'
@@ -48,6 +50,7 @@ import HSCPOfficerUsersPage from './pages/hscp-officer/HSCPOfficerUsersPage'
 import HSCPOfficerTeacherAttendancePage from './pages/hscp-officer/HSCPOfficerTeacherAttendancePage'
 import HSCPOfficerStudentAttendancePage from './pages/hscp-officer/HSCPOfficerStudentAttendancePage'
 import HSCPOfficerStudentAttendanceViewPage from './pages/hscp-officer/HSCPOfficerStudentAttendanceViewPage'
+import HSCPOfficerRecordStudentAttendancePage from './pages/hscp-officer/HSCPOfficerRecordStudentAttendancePage'
 import HSCPOfficerTeachersPage from './pages/hscp-officer/HSCPOfficerTeachersPage'
 import HSCPOfficerTeacherDetailPage from './pages/hscp-officer/HSCPOfficerTeacherDetailPage'
 
@@ -100,10 +103,13 @@ function App() {
           <Route path="/admin/users/:id" element={<AdminUserDetailPage />} />
           <Route path="/admin/attendance" element={<AdminAttendancePage />} />
           <Route path="/admin/student-attendance" element={<AdminStudentAttendancePage />} />
+          <Route path="/admin/staff-attendance" element={<PrincipalStaffAttendancePage />} />
           <Route path="/admin/archive" element={<AdminArchivePage />} />
           
           {/* Principal routes */}
           <Route path="/principal" element={<PrincipalPage />} />
+          <Route path="/principal/staff-attendance" element={<PrincipalStaffAttendancePage />} />
+          <Route path="/principal/staff-management" element={<PrincipalStaffManagementPage />} />
           <Route path="/principal/student-attendance" element={<PrincipalStudentAttendancePage />} />
           <Route path="/principal/teacher-attendance" element={<PrincipalTeacherAttendancePage />} />
           <Route path="/principal/users" element={<PrincipalUsersPage />} />
@@ -122,6 +128,7 @@ function App() {
           <Route path="/hscp-officer/teacher-attendance" element={<HSCPOfficerTeacherAttendancePage />} />
           <Route path="/hscp-officer/student-attendance" element={<HSCPOfficerStudentAttendancePage />} />
           <Route path="/hscp-officer/hscp-student-attendance" element={<HSCPOfficerStudentAttendanceViewPage />} />
+          <Route path="/hscp-officer/record-student-attendance" element={<HSCPOfficerRecordStudentAttendancePage />} />
         </Route>
 
         {/* Other routes */}

@@ -660,6 +660,29 @@ class TeacherAttendanceEntryResponse(BaseModel):
 class TeacherAttendanceListResponse(BaseModel):
     attendance: List[TeacherAttendanceEntryResponse]
 
+# Other staff attendance models (volunteers, admins, HSCP officers - not teachers, not principals)
+class OtherStaffAttendanceEntryInput(BaseModel):
+    staffId: str
+    status: str  # "present" | "absent" | "late" | "left_early"
+    comments: Optional[str] = None
+
+class SaveOtherStaffAttendanceRequest(BaseModel):
+    attendanceDate: str
+    schoolYear: str
+    entries: List[OtherStaffAttendanceEntryInput]
+
+class OtherStaffAttendanceResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+
+class OtherStaffAttendanceEntryResponse(BaseModel):
+    staff_id: str
+    status: str
+    comments: Optional[str] = None
+
+class OtherStaffAttendanceListResponse(BaseModel):
+    attendance: List[OtherStaffAttendanceEntryResponse]
+
 class UpdateProfileRequest(BaseModel):
     full_name: str
     mobile: Optional[str] = None
@@ -686,6 +709,7 @@ class CreateStaffRequest(BaseModel):
     grade: Optional[str] = None
     section: Optional[str] = None
     room_number: Optional[str] = None
+    description: Optional[str] = None
 
 class CreateStaffResponse(BaseModel):
     success: bool
@@ -719,6 +743,12 @@ class AddStudentRequest(BaseModel):
 class AddStudentResponse(BaseModel):
     success: Optional[str] = None
     error: Optional[str] = None
+
+class AddHSCPStudentRequest(BaseModel):
+    grade: str  # e.g., "HSCP-1", "hscp 2", etc.
+    schoolYear: str
+    studentIdentifier: str
+    fullName: str
 
 class BulkStudentItem(BaseModel):
     studentIdentifier: str
@@ -1276,6 +1306,182 @@ async def get_teacher_attendance(
             content={"error": f"Failed to fetch teacher attendance: {str(e)}"}
         )
 
+
+# ======== OTHER STAFF ATTENDANCE ENDPOINTS ========
+
+@api_router.post("/other-staff-attendance", response_model=OtherStaffAttendanceResponse)
+async def save_other_staff_attendance(
+    payload: SaveOtherStaffAttendanceRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Save other staff attendance records for principals and admins.
+    Records attendance for volunteers, admins, HSCP officers (not teachers, not principals).
+    """
+    try:
+        log_info(f"save_other_staff_attendance called with payload: date={payload.attendanceDate}, entries={len(payload.entries)}")
+        
+        # Check if user is admin or principal
+        current_role = profile.get("role")
+        if current_role not in ["admin", "principal"]:
+            raise HTTPException(status_code=403, detail="Only admins and principals can record volunteer/staff attendance")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Check if date is a holiday
+        holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
+            "school_year", payload.schoolYear
+        ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
+        
+        if holiday_response and hasattr(holiday_response, 'data') and holiday_response.data:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "This date is marked as a holiday."}
+            )
+        
+        # Get staff data and validate they are non-teacher, non-principal
+        staff_ids = [entry.staffId for entry in payload.entries]
+        staff_response = admin_supabase.table("profiles").select(
+            "id,full_name,role"
+        ).in_("id", staff_ids).execute()
+        
+        if staff_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for staff query")
+        
+        if hasattr(staff_response, 'error') and staff_response.error:
+            log_error(f"Supabase error in staff query: {staff_response.error}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {staff_response.error}")
+        
+        if not hasattr(staff_response, 'data') or not staff_response.data:
+            raise HTTPException(status_code=500, detail="Supabase response missing data attribute")
+        
+        staff_data = staff_response.data
+        
+        # Validate all staff are non-teacher, non-principal
+        for staff in staff_data:
+            staff_role = staff.get("role", "")
+            if staff_role in ["teacher", "principal"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"{staff.get('full_name')} is a {staff_role}. Only non-teacher, non-principal staff can have attendance recorded here."
+                )
+        
+        # Create staff map
+        staff_map = {row["id"]: row for row in staff_data}
+        
+        # Prepare upsert data
+        upserts = []
+        for entry in payload.entries:
+            staff = staff_map.get(entry.staffId)
+            if not staff:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Staff {entry.staffId} not found"}
+                )
+            
+            upserts.append({
+                "staff_id": entry.staffId,
+                "attendance_date": payload.attendanceDate,
+                "status": entry.status,
+                "comments": entry.comments,
+                "school_year": payload.schoolYear,
+                "recorded_by": profile["id"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+        
+        # Upsert attendance records
+        log_info(f"Upserting {len(upserts)} other staff attendance records...")
+        attendance_response = admin_supabase.table("other_staff_attendance").upsert(
+            upserts,
+            on_conflict="staff_id,attendance_date"
+        ).execute()
+        
+        if attendance_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for attendance upsert")
+        
+        if hasattr(attendance_response, 'error') and attendance_response.error:
+            log_error(f"Supabase error in attendance upsert: {attendance_response.error}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {attendance_response.error}")
+        
+        if not hasattr(attendance_response, 'data'):
+            raise HTTPException(status_code=500, detail="Supabase response missing data attribute")
+        
+        log_info("Other staff attendance saved successfully")
+        return {"success": "Volunteer/Staff attendance saved."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error saving other staff attendance: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to save volunteer/staff attendance: {str(e)}"}
+        )
+
+
+@api_router.get("/other-staff-attendance", response_model=OtherStaffAttendanceListResponse)
+async def get_other_staff_attendance(
+    date: str,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Get other staff attendance records for a specific date.
+    Uses admin client to bypass RLS.
+    """
+    try:
+        log_info(f"get_other_staff_attendance called for date: {date}")
+        
+        # Check if user is admin or principal
+        current_role = profile.get("role")
+        if current_role not in ["admin", "principal"]:
+            raise HTTPException(status_code=403, detail="Only admins and principals can view volunteer/staff attendance")
+        
+        admin_supabase = get_supabase_admin_client()
+        
+        # Fetch attendance records for the date
+        attendance_response = admin_supabase.table("other_staff_attendance").select(
+            "staff_id,status,comments"
+        ).eq("attendance_date", date).execute()
+        
+        if attendance_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for attendance query")
+        
+        if hasattr(attendance_response, 'error') and attendance_response.error:
+            log_error(f"Supabase error in attendance query: {attendance_response.error}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {attendance_response.error}")
+        
+        if not hasattr(attendance_response, 'data'):
+            raise HTTPException(status_code=500, detail="Supabase response missing data attribute")
+        
+        attendance_data = attendance_response.data or []
+        
+        # Convert to response model
+        attendance = [
+            OtherStaffAttendanceEntryResponse(
+                staff_id=entry.get("staff_id"),
+                status=entry.get("status"),
+                comments=entry.get("comments"),
+            )
+            for entry in attendance_data
+        ]
+        
+        log_info(f"Returning {len(attendance)} other staff attendance records")
+        return {"attendance": attendance}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error fetching other staff attendance: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to fetch volunteer/staff attendance: {str(e)}"}
+        )
+
+
 @api_router.put("/profile", response_model=UpdateProfileResponse)
 async def update_profile(
     payload: UpdateProfileRequest,
@@ -1540,6 +1746,198 @@ async def add_student(
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to add student: {str(e)}"}
+        )
+
+@api_router.post("/hscp-students", response_model=AddStudentResponse)
+async def add_hscp_student(
+    payload: AddHSCPStudentRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Add a single HSCP student by grade (no section needed from the user).
+    HSCP officers provide just the grade (e.g., HSCP-1) and the system
+    automatically assigns the student to the first section of that grade.
+    """
+    try:
+        current_role = profile.get("role")
+        if current_role not in ["hscp_officer", "admin", "principal"]:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Only HSCP officers, admins, or principals can add HSCP students."}
+            )
+
+        # Normalize the grade
+        normalized_grade = normalize_hscp_grade(payload.grade)
+        if not is_hscp_grade(normalized_grade):
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"'{payload.grade}' is not a valid HSCP grade. Use formats like HSCP-1, HSCP-2, etc."}
+            )
+
+        log_info(f"add_hscp_student called - grade: {normalized_grade}, studentIdentifier: {payload.studentIdentifier}, fullName: {payload.fullName}")
+
+        # Validate student identifier is a number
+        try:
+            student_identifier = int(payload.studentIdentifier)
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Student ID must be a number."}
+            )
+
+        admin_supabase = get_supabase_admin_client()
+
+        # Get current school year
+        school_year = payload.schoolYear
+        if not school_year:
+            settings_response = admin_supabase.table("system_settings").select("current_school_year").eq("id", 1).maybe_single().execute()
+            if settings_response and hasattr(settings_response, 'data') and settings_response.data:
+                school_year = settings_response.data.get("current_school_year", "2025-2026")
+            else:
+                school_year = "2025-2026"
+
+        # Find all sections for this HSCP grade
+        sections_response = admin_supabase.table("sections").select("id,section").eq("grade", normalized_grade).eq("school_year", school_year).order("section", desc=False).execute()
+
+        if not sections_response or not hasattr(sections_response, 'data') or not sections_response.data:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No sections found for grade {normalized_grade} in school year {school_year}. Please ensure sections (Reading, Writing, Conversation) are created first."}
+            )
+
+        grade_sections = sections_response.data
+        # Use the first section as the student's primary section_id
+        primary_section_id = grade_sections[0].get("id")
+
+        # Check if student_identifier already exists globally
+        log_info(f"Checking for existing student with identifier: {student_identifier}")
+        existing_response = admin_supabase.table("students").select(
+            "id,full_name,section_id,sections(grade,section)"
+        ).eq("student_identifier", student_identifier).maybe_single().execute()
+
+        if existing_response is None:
+            log_warning("Supabase returned None for existing student check, assuming no existing student.")
+        elif hasattr(existing_response, 'error') and existing_response.error:
+            error = existing_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            log_error(f"Supabase error in existing student check: {error_message}")
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+        elif hasattr(existing_response, 'data') and existing_response.data is not None:
+            existing = existing_response.data
+            section_info = existing.get("sections")
+            if isinstance(section_info, list) and len(section_info) > 0:
+                section_info = section_info[0]
+            elif not section_info:
+                section_info = None
+
+            if section_info:
+                section_display = f"Grade {section_info.get('grade')} {section_info.get('section')}"
+            else:
+                section_display = "another class"
+
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": f"Student ID {student_identifier} already exists for {existing.get('full_name')} in {section_display}. Each student ID must be unique across all classes."
+                }
+            )
+
+        # Insert new student with the primary section
+        capitalized_name = capitalize_name(payload.fullName)
+        insert_data = {
+            "student_identifier": student_identifier,
+            "full_name": capitalized_name,
+            "section_id": primary_section_id,
+            "school_year": school_year,
+        }
+
+        log_info(f"Inserting HSCP student: {insert_data}")
+        inserted_response = admin_supabase.table("students").insert(insert_data).execute()
+
+        if inserted_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for student insert")
+
+        if hasattr(inserted_response, 'error') and inserted_response.error:
+            error = inserted_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            raise HTTPException(status_code=500, detail=f"Failed to add student: {error_message}")
+
+        if not hasattr(inserted_response, 'data') or not inserted_response.data:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Unable to add student."}
+            )
+
+        inserted = inserted_response.data
+        if isinstance(inserted, list) and len(inserted) > 0:
+            student_id = inserted[0].get("id")
+        elif isinstance(inserted, dict):
+            student_id = inserted.get("id")
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Unable to add student."}
+            )
+
+        # Backfill attendance for existing dates across ALL sections of this HSCP grade
+        sections_to_check = [s.get("id") for s in grade_sections if s.get("id")]
+
+        all_unique_dates = set()
+        section_dates_map = {}
+
+        for section_id_to_check in sections_to_check:
+            attendance_dates_response = admin_supabase.table("student_attendance").select("attendance_date").eq("section_id", section_id_to_check).execute()
+
+            if attendance_dates_response and hasattr(attendance_dates_response, 'data') and attendance_dates_response.data:
+                dates_for_section = set([row.get("attendance_date") for row in attendance_dates_response.data if row.get("attendance_date")])
+                section_dates_map[section_id_to_check] = dates_for_section
+                all_unique_dates.update(dates_for_section)
+
+        if all_unique_dates:
+            holidays_response = admin_supabase.table("holidays").select("holiday_date").eq("school_year", school_year).in_("holiday_date", list(all_unique_dates)).execute()
+
+            holiday_dates = set()
+            if holidays_response and hasattr(holidays_response, 'data') and holidays_response.data:
+                holiday_dates = set([row.get("holiday_date") for row in holidays_response.data if row.get("holiday_date")])
+
+            backfill = []
+            for section_id_to_check in sections_to_check:
+                dates_for_section = section_dates_map.get(section_id_to_check, set())
+                for date in dates_for_section:
+                    if date not in holiday_dates:
+                        backfill.append({
+                            "student_id": student_id,
+                            "student_identifier": student_identifier,
+                            "section_id": section_id_to_check,
+                            "recorded_by": profile["id"],
+                            "attendance_date": date,
+                            "status": "absent",
+                            "comments": None,
+                            "school_year": school_year,
+                        })
+
+            if backfill:
+                log_info(f"Backfilling attendance for {len(backfill)} records across {len(sections_to_check)} section(s)")
+                backfill_response = admin_supabase.table("student_attendance").upsert(
+                    backfill,
+                    on_conflict="student_id,attendance_date,section_id"
+                ).execute()
+
+                if backfill_response and hasattr(backfill_response, 'error') and backfill_response.error:
+                    log_warning(f"Warning: Failed to backfill attendance: {backfill_response.error}")
+
+        log_info(f"HSCP Student added successfully to grade {normalized_grade}")
+        return {"success": f"Student '{capitalized_name}' added to {normalized_grade}."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error adding HSCP student: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to add HSCP student: {str(e)}"}
         )
 
 @api_router.put("/students", response_model=UpdateStudentResponse)
@@ -1879,7 +2277,7 @@ async def signup(payload: SignupRequest):
         log_info(f"signup called - email: {payload.email}, role: {payload.role}")
         
         # Validate and normalize role
-        valid_roles = ["admin", "teacher", "principal", "attendance_officer", "hscp_officer"]
+        valid_roles = ["admin", "teacher", "principal", "attendance_officer", "hscp_officer", "volunteer"]
         normalized_role = payload.role.lower() if payload.role.lower() in valid_roles else "teacher"
         
         # Validation
@@ -2123,28 +2521,35 @@ async def create_staff(
     profile: dict = Depends(get_current_profile)
 ):
     """
-    Admin/HSCP Officer endpoint to create staff without requiring email.
-    Admins can create any role. HSCP Officers can only create HSCP teachers.
+    Admin/Principal/HSCP Officer endpoint to create staff without requiring email.
+    Admins and Principals can create any role. HSCP Officers can only create HSCP teachers.
     Creates auth.users with placeholder email (noemail-{uuid}@system.local) if no email provided.
     """
     try:
         current_role = profile.get("role")
         
-        # Check if current user is admin or HSCP officer
-        if current_role not in ["admin", "hscp_officer"]:
-            raise HTTPException(status_code=403, detail="Only admins and HSCP officers can create staff")
+        # Check if current user is admin, principal, or HSCP officer
+        if current_role not in ["admin", "principal", "hscp_officer"]:
+            raise HTTPException(status_code=403, detail="Only admins, principals, and HSCP officers can create staff")
         
         log_info(f"{current_role} {profile.get('email')} creating staff: {payload.full_name}, role: {payload.role}")
         log_info(f"Payload email: {payload.email}, Email type: {type(payload.email)}")
         
         # Validate and normalize role
-        valid_roles = ["admin", "teacher", "principal", "attendance_officer", "hscp_officer"]
+        valid_roles = ["admin", "teacher", "principal", "attendance_officer", "hscp_officer", "volunteer"]
         normalized_role = payload.role.lower() if payload.role.lower() in valid_roles else "teacher"
         
         if normalized_role not in valid_roles:
             return JSONResponse(
                 status_code=400,
                 content={"error": f"Invalid role. Must be one of: {', '.join(valid_roles)}."}
+            )
+        
+        # For volunteers, description is mandatory
+        if normalized_role == "volunteer" and (not payload.description or not payload.description.strip()):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Description is required for volunteers."}
             )
         
         # If HSCP officer, only allow creating teachers with HSCP grades
@@ -2352,6 +2757,9 @@ async def create_staff(
             "is_approved": True,  # Approved by default when created by admin
             "requires_password_reset": True,  # User must reset password on first login
         }
+        # Only include description if provided (column may not exist yet before migration)
+        if payload.description:
+            profile_data["description"] = payload.description.strip()
         
         log_info(f"Creating profile: {profile_data}")
         
@@ -2660,7 +3068,7 @@ async def approve_user(
         log_info(f"{current_role} {profile.get('email')} approving user {payload.profileId} as {payload.role}")
         
         # Validate and normalize role
-        valid_roles = ["admin", "teacher", "principal", "attendance_officer", "hscp_officer"]
+        valid_roles = ["admin", "teacher", "principal", "attendance_officer", "hscp_officer", "volunteer"]
         normalized_role = payload.role.lower() if payload.role.lower() in valid_roles else "teacher"
         
         if normalized_role not in valid_roles:
@@ -2931,7 +3339,7 @@ async def update_user_role(
             )
         
         # Validate role
-        valid_roles = ["admin", "teacher", "principal", "attendance_officer", "hscp_officer"]
+        valid_roles = ["admin", "teacher", "principal", "attendance_officer", "hscp_officer", "volunteer"]
         normalized_role = payload.role.lower() if payload.role.lower() in valid_roles else None
         
         if normalized_role not in valid_roles:
@@ -3167,24 +3575,22 @@ async def get_all_users(
     authorization: Optional[str] = Header(None)
 ):
     """
-    Get all users (admin only) or HSCP teachers (HSCP officer only)
+    Get all users (admin/principal) or HSCP teachers (HSCP officer only)
     This endpoint uses the admin client to bypass RLS and fetch profiles
     """
     try:
         current_role = profile.get("role")
         
-        # Check if current user is admin or HSCP officer
-        if current_role not in ["admin", "hscp_officer"]:
-            raise HTTPException(status_code=403, detail="Only admins and HSCP officers can view users")
+        # Check if current user is admin, principal, or HSCP officer
+        if current_role not in ["admin", "principal", "hscp_officer"]:
+            raise HTTPException(status_code=403, detail="Only admins, principals, and HSCP officers can view users")
         
         log_info(f"{current_role} {profile.get('email')} fetching users")
         
         admin_supabase = get_supabase_admin_client()
         
-        # Fetch all profiles
-        response = admin_supabase.table("profiles").select(
-            "id,full_name,email,role,grade,section,room_number,mobile,is_active,is_approved,requires_password_reset,created_at"
-        ).order("created_at", desc=True).execute()
+        # Fetch all profiles (use * to avoid breakage if description column not yet added)
+        response = admin_supabase.table("profiles").select("*").order("created_at", desc=True).execute()
         
         if response is None:
             raise HTTPException(status_code=500, detail="Supabase returned None for users query")

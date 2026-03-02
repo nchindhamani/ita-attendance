@@ -18,6 +18,30 @@ export default function PrincipalPage() {
       </div>
 
       <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+        <Link to="/principal/staff-attendance">
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle>Record Volunteer/Staff Attendance</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Record attendance for volunteers, admins, and HSCP officers.
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link to="/principal/staff-management">
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle>Staff Management</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                View staff directory and create new staff members.
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
         <Link to="/principal/student-attendance">
           <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>

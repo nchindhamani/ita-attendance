@@ -3,20 +3,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { UserManagementActions } from '@/features/admin/UserManagementActions'
 import { EmptyState } from '@/components/ui/empty-state'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useRequireRole } from '@/lib/auth-client'
 import { Role } from '@/lib/types'
-import { CreateStaffPage } from './CreateStaffPage'
+import { CreateStaffPage } from '../admin/CreateStaffPage'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -34,18 +25,16 @@ type User = {
   created_at: string
 }
 
-export default function AdminUsersPage() {
-  useRequireRole('admin')
+export default function PrincipalStaffManagementPage() {
+  useRequireRole('principal')
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const activeTab = searchParams.get('tab') || 'approval'
+  const activeTab = searchParams.get('tab') || 'directory'
   
-  const [approvalQueue, setApprovalQueue] = useState<User[]>([])
   const [staffDirectory, setStaffDirectory] = useState<User[]>([])
   const [filteredStaff, setFilteredStaff] = useState<User[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all')
-  const [currentAdminId, setCurrentAdminId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,20 +44,13 @@ export default function AdminUsersPage() {
         setLoading(true)
         setError(null)
 
-        // Get session for authentication
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) {
           navigate('/auth/login')
           return
         }
 
-        // Get current admin profile ID
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          setCurrentAdminId(user.id)
-        }
-
-        // Fetch all users from backend API (bypasses RLS)
+        // Fetch all users from backend API
         const response = await fetch('/api/admin/users', {
           method: 'GET',
           headers: {
@@ -85,11 +67,7 @@ export default function AdminUsersPage() {
         const data = await response.json()
         const allUsers = data.users || []
 
-        // Filter into approval queue and staff directory
-        const approval = allUsers.filter((user: User) => !user.is_approved)
         const staff = allUsers.filter((user: User) => user.is_approved)
-
-        setApprovalQueue(approval)
         setStaffDirectory(staff)
         setFilteredStaff(staff)
       } catch (err) {
@@ -108,12 +86,10 @@ export default function AdminUsersPage() {
   useEffect(() => {
     let filtered = staffDirectory
 
-    // Filter by role
     if (roleFilter !== 'all') {
       filtered = filtered.filter(user => user.role === roleFilter)
     }
 
-    // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(user => 
@@ -156,7 +132,6 @@ export default function AdminUsersPage() {
   }
 
   const handleUserUpdated = () => {
-    // Refresh data after user action
     window.location.reload()
   }
 
@@ -183,97 +158,32 @@ export default function AdminUsersPage() {
     <div className="space-y-12">
       <div className="space-y-3">
         <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">
-          User Management
+          Staff Management
         </h2>
         <p className="text-base text-muted-foreground">
-          Review approvals, manage roles, and deactivate staff.
+          View staff directory and create new staff members.
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
-          variant={activeTab === 'approval' ? 'default' : 'outline'}
-          asChild
-        >
-          <Link to="/admin/users?tab=approval">Approval Queue</Link>
-        </Button>
-        <Button
-          size="sm"
           variant={activeTab === 'directory' ? 'default' : 'outline'}
           asChild
         >
-          <Link to="/admin/users?tab=directory">Staff Directory</Link>
+          <Link to="/principal/staff-management?tab=directory">Staff Directory</Link>
         </Button>
         <Button
           size="sm"
           variant={activeTab === 'create' ? 'default' : 'outline'}
           asChild
         >
-          <Link to="/admin/users?tab=create">Create Staff</Link>
+          <Link to="/principal/staff-management?tab=create">Create Staff</Link>
         </Button>
       </div>
 
       {activeTab === 'create' ? (
-        <CreateStaffPage onStaffCreated={handleUserUpdated} />
-      ) : activeTab === 'approval' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Approval Queue</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {approvalQueue.length > 0 ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Grade</TableHead>
-                      <TableHead>Section</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {approvalQueue.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell>
-                          <Link
-                            to={`/admin/users/${user.id}`}
-                            className="font-medium text-primary underline"
-                          >
-                            {user.full_name ?? 'Unknown'}
-                          </Link>
-                        </TableCell>
-                        <TableCell>{user.email}</TableCell>
-                        <TableCell className="capitalize">{getDisplayRole(user)}</TableCell>
-                        <TableCell>{user.grade ?? '-'}</TableCell>
-                        <TableCell>{user.section ?? '-'}</TableCell>
-                        <TableCell>
-                          <UserManagementActions
-                            userId={user.id}
-                            isApproved={user.is_approved}
-                            isActive={user.is_active}
-                            role={user.role as 'teacher' | 'admin'}
-                            view="approval"
-                            onUserUpdated={handleUserUpdated}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <EmptyState
-                icon="check"
-                title="All caught up!"
-                description="No pending approvals at this time."
-              />
-            )}
-          </CardContent>
-        </Card>
+        <CreateStaffPage onStaffCreated={handleUserUpdated} basePath="/principal/staff-management" />
       ) : (
         <div className="space-y-6">
           {/* Search and Filters */}
@@ -309,8 +219,7 @@ export default function AdminUsersPage() {
               {filteredStaff.map((user) => (
                 <Card 
                   key={user.id} 
-                  className="hover:shadow-lg transition-shadow cursor-pointer"
-                  onClick={() => navigate(`/admin/users/${user.id}`)}
+                  className="hover:shadow-lg transition-shadow"
                 >
                   <CardContent className="p-6">
                     <div className="flex items-start gap-4">
@@ -336,26 +245,8 @@ export default function AdminUsersPage() {
                           }`}>
                             {user.is_active ? 'Active' : 'Inactive'}
                           </span>
-                          {user.id === currentAdminId && (
-                            <span className="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-700">
-                              YOU
-                            </span>
-                          )}
                         </div>
                       </div>
-                    </div>
-                    <div className="mt-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          navigate(`/admin/users/${user.id}`)
-                        }}
-                      >
-                        View Profile
-                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -375,3 +266,4 @@ export default function AdminUsersPage() {
     </div>
   )
 }
+

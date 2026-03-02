@@ -22,6 +22,7 @@ type User = {
   role: Role
   grade: string | null
   section: string | null
+  description: string | null
   mobile: string | null
   room_number: string | null
   is_active: boolean
@@ -412,7 +413,9 @@ export default function AdminUserDetailPage() {
               <p className="text-muted-foreground mb-3">{user.email}</p>
               <div className="flex flex-wrap gap-2">
                 <span className="px-3 py-1 text-sm rounded-full bg-blue-100 text-blue-700 capitalize">
-                  {user.role.replace('_', ' ')}
+                  {user.role === 'volunteer' && user.description
+                    ? `Volunteer - ${user.description}`
+                    : user.role.replace('_', ' ')}
                 </span>
                 {user.grade && user.section && (
                   <span className="px-3 py-1 text-sm rounded-full bg-gray-100 text-gray-700">
@@ -536,7 +539,11 @@ export default function AdminUserDetailPage() {
             <CardContent className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Role</label>
-                <p className="text-base capitalize">{user.role.replace('_', ' ')}</p>
+                <p className="text-base capitalize">
+                  {user.role === 'volunteer' && user.description
+                    ? `Volunteer - ${user.description}`
+                    : user.role.replace('_', ' ')}
+                </p>
               </div>
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Approval Status</label>

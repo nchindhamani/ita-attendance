@@ -12,6 +12,10 @@ import {
   ClipboardCheck,
   UserCog,
   CalendarCheck,
+  Eye,
+  PenSquare,
+  HandHeart,
+  UserPlus,
 } from "lucide-react";
 import {
   Dialog,
@@ -41,8 +45,16 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   // HSCP Officer
   "HSCP Teacher Attendance": ClipboardCheck,
   "HSCP Teacher Management": UserCog,
-  "HSCP Student Attendance": CalendarCheck,
+  "View Student Attendance": Eye,
+  "Record Student Attendance": PenSquare,
   "HSCP Student Lookup": Search,
+  // Principal & Admin
+  "Overview": LayoutDashboard,
+  "Record Volunteer/Staff Attendance": HandHeart,
+  "Staff Management": UserPlus,
+  "Student Attendance": Search,
+  "Teacher Attendance": ClipboardCheck,
+  "User Profiles": Users,
 };
 
 // Map full labels to shorter mobile labels
@@ -57,9 +69,16 @@ const labelMap: Record<string, string> = {
   "Profile": "Profile",
   // HSCP Officer
   "HSCP Teacher Attendance": "Tchr Att.",
-  "HSCP Teacher Management": "Teachers",
-  "HSCP Student Attendance": "Stu Att.",
+  "HSCP Teacher Management": "Tchr Mgmt",
+  "View Student Attendance": "View Stu Att.",
+  "Record Student Attendance": "Record Stu Att.",
   "HSCP Student Lookup": "Stu Lookup",
+  // Principal & Admin
+  "Record Volunteer/Staff Attendance": "Vol/Staff Att.",
+  "Staff Management": "Staff Mgmt",
+  "Student Attendance": "Stu Att.",
+  "Teacher Attendance": "Tchr Att.",
+  "User Profiles": "Users",
 };
 
 export function BottomNav({ navLinks }: BottomNavProps) {

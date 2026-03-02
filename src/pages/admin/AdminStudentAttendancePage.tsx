@@ -300,7 +300,9 @@ export default function AdminStudentAttendancePage() {
               <p className="text-sm text-[#64748b]">ID: {student.student_identifier ?? '-'}</p>
               {sectionInfo && (
                 <p className="text-sm text-[#64748b]">
-                  Class: Grade {sectionInfo.grade} - {sectionInfo.section}
+                  {sectionInfo.grade.toUpperCase().startsWith('HSCP')
+                    ? `Grade: ${sectionInfo.grade}`
+                    : `Class: Grade ${sectionInfo.grade} - ${sectionInfo.section}`}
                 </p>
               )}
               {teacherName && (

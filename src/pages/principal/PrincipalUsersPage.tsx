@@ -15,6 +15,7 @@ type User = {
   role: Role
   grade: string | null
   section: string | null
+  description: string | null
   is_active: boolean
   is_approved: boolean
 }
@@ -38,7 +39,7 @@ export default function PrincipalUsersPage() {
         // Fetch all profiles (read-only via RLS)
         const { data, error: fetchError } = await supabase
           .from('profiles')
-          .select('id,full_name,email,role,grade,section,is_active,is_approved')
+          .select('*')
           .order('created_at', { ascending: false })
 
         if (fetchError) {
@@ -135,7 +136,9 @@ export default function PrincipalUsersPage() {
                     <p className="text-sm text-muted-foreground truncate">{user.email}</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700 capitalize">
-                        {user.role.replace('_', ' ')}
+                        {user.role === 'volunteer' && user.description
+                          ? `Volunteer - ${user.description}`
+                          : user.role.replace('_', ' ')}
                       </span>
                       {user.grade && user.section && (
                         <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700">

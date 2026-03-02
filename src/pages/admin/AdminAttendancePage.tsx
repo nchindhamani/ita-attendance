@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import { HistoryTable } from '@/features/history/HistoryTable'
 import { AttendanceStatistics } from '@/features/attendance/AttendanceStatistics'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -206,11 +207,9 @@ export default function AdminAttendancePage() {
                 </option>
               ))}
             </select>
-            <Input
-              type="date"
-              name="date"
+            <DateInput
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              onChange={(newDate) => setSelectedDate(newDate)}
               max={formatPacificDate(new Date())}
               className="h-10"
             />

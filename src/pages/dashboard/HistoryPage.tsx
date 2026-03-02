@@ -5,6 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import { Button } from '@/components/ui/button'
 import { HistoryTable } from '@/features/history/HistoryTable'
 import { AttendanceStatistics } from '@/features/attendance/AttendanceStatistics'
@@ -135,14 +136,12 @@ export default function HistoryPage() {
     fetchData()
   }, [sectionId, selectedDate, profile, authLoading])
 
+  const [pickerDate, setPickerDate] = useState(selectedDate)
+
   const handleDateChange = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const formData = new FormData(e.currentTarget)
-    const date = formData.get('date') as string
-    const section = formData.get('section') as string
-    
-    if (date && section) {
-      navigate(`/history?section=${section}&date=${date}`)
+    if (pickerDate && sectionId) {
+      navigate(`/history?section=${sectionId}&date=${pickerDate}`)
     }
   }
 
@@ -198,15 +197,13 @@ export default function HistoryPage() {
         <CardContent className="p-4 pt-2">
           <form onSubmit={handleDateChange} className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex-1 sm:max-w-[180px]">
-              <Input
-                type="date"
-                name="date"
-                defaultValue={selectedDate}
+              <DateInput
+                value={pickerDate}
                 max={formatPacificDate(new Date())}
+                onChange={(newDate) => setPickerDate(newDate)}
                 className="w-full"
               />
             </div>
-            <input type="hidden" name="section" value={sectionId} />
             <Button type="submit" className="w-full sm:w-auto">
               View
             </Button>

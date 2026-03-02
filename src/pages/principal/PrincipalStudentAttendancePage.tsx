@@ -210,7 +210,9 @@ export default function PrincipalStudentAttendancePage() {
               <p><strong>Name:</strong> {student.full_name}</p>
               <p><strong>Student ID:</strong> {student.student_identifier}</p>
               {sectionInfo && (
-                <p><strong>Section:</strong> {sectionInfo.grade}/{sectionInfo.section}</p>
+                sectionInfo.grade.toUpperCase().startsWith('HSCP')
+                  ? <p><strong>Grade:</strong> {sectionInfo.grade}</p>
+                  : <p><strong>Section:</strong> {sectionInfo.grade}/{sectionInfo.section}</p>
               )}
               <p><strong>School Year:</strong> {yearInput}</p>
             </CardContent>

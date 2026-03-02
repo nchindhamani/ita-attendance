@@ -1,4 +1,4 @@
-export type Role = "admin" | "teacher" | "principal" | "attendance_officer" | "hscp_officer";
+export type Role = "admin" | "teacher" | "principal" | "attendance_officer" | "hscp_officer" | "volunteer";
 
 export type ArchiveStatus = "IDLE" | "ARCHIVE_READY" | "PURGING";
 
@@ -11,6 +11,7 @@ export interface Profile {
   role: Role;
   grade?: string | null;
   section?: string | null;
+  description?: string | null;
   is_active: boolean;
   is_approved: boolean;
 }
@@ -32,7 +33,8 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
   principal: [
     "View student attendance",
     "View teacher attendance",
-    "View user profiles"
+    "View user profiles",
+    "Record volunteer/staff attendance"
   ],
   attendance_officer: [
     "View student profiles (read-only)",
@@ -41,6 +43,9 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
   hscp_officer: [
     "Insert/update/read attendance of HSCP teachers",
     "View student attendance of HSCP teachers (read-only)"
+  ],
+  volunteer: [
+    "No portal access"
   ]
 };
 
@@ -49,7 +54,8 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   teacher: "Manage classes and attendance",
   principal: "Read-only access to all data",
   attendance_officer: "Manage attendance only",
-  hscp_officer: "Manage HSCP teachers and their students"
+  hscp_officer: "Manage HSCP teachers and their students",
+  volunteer: "No portal access - attendance tracked by principals"
 };
 
 export const ROLE_ICONS: Record<Role, string> = {
@@ -57,6 +63,7 @@ export const ROLE_ICONS: Record<Role, string> = {
   teacher: "👥",
   principal: "👁️",
   attendance_officer: "📅",
-  hscp_officer: "🏥"
+  hscp_officer: "🏥",
+  volunteer: "🤝"
 };
 
