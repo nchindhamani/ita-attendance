@@ -49,8 +49,8 @@ import HSCPOfficerPage from './pages/hscp-officer/HSCPOfficerPage'
 import HSCPOfficerUsersPage from './pages/hscp-officer/HSCPOfficerUsersPage'
 import HSCPOfficerTeacherAttendancePage from './pages/hscp-officer/HSCPOfficerTeacherAttendancePage'
 import HSCPOfficerStudentAttendancePage from './pages/hscp-officer/HSCPOfficerStudentAttendancePage'
-import HSCPOfficerStudentAttendanceViewPage from './pages/hscp-officer/HSCPOfficerStudentAttendanceViewPage'
 import HSCPOfficerRecordStudentAttendancePage from './pages/hscp-officer/HSCPOfficerRecordStudentAttendancePage'
+import HSCPOfficerRecordTeacherAttendancePage from './pages/hscp-officer/HSCPOfficerRecordTeacherAttendancePage'
 import HSCPOfficerTeachersPage from './pages/hscp-officer/HSCPOfficerTeachersPage'
 import HSCPOfficerTeacherDetailPage from './pages/hscp-officer/HSCPOfficerTeacherDetailPage'
 
@@ -127,7 +127,7 @@ function App() {
           <Route path="/hscp-officer/teachers/:id" element={<HSCPOfficerTeacherDetailPage />} />
           <Route path="/hscp-officer/teacher-attendance" element={<HSCPOfficerTeacherAttendancePage />} />
           <Route path="/hscp-officer/student-attendance" element={<HSCPOfficerStudentAttendancePage />} />
-          <Route path="/hscp-officer/hscp-student-attendance" element={<HSCPOfficerStudentAttendanceViewPage />} />
+          <Route path="/hscp-officer/record-teacher-attendance" element={<HSCPOfficerRecordTeacherAttendancePage />} />
           <Route path="/hscp-officer/record-student-attendance" element={<HSCPOfficerRecordStudentAttendancePage />} />
         </Route>
 
