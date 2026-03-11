@@ -21,11 +21,11 @@ export default function DashboardPage() {
         navigate('/attendance-officer', { replace: true })
         break
       case 'hscp_officer':
-        navigate('/hscp-officer/teacher-attendance', { replace: true })
+        navigate('/hscp-officer/record-teacher-attendance', { replace: true })
         break
       case 'teacher':
       default:
-        navigate('/teacher', { replace: true })
+        navigate('/attendance', { replace: true })
         break
     }
   }, [profile, loading, navigate])

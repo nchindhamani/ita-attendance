@@ -17,6 +17,16 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useRequireRole } from '@/lib/auth-client'
 import { Role } from '@/lib/types'
 import { CreateStaffPage } from './CreateStaffPage'
+import { toast } from 'sonner'
+import { Trash2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -48,6 +58,8 @@ export default function AdminUsersPage() {
   const [currentAdminId, setCurrentAdminId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -158,6 +170,37 @@ export default function AdminUsersPage() {
   const handleUserUpdated = () => {
     // Refresh data after user action
     window.location.reload()
+  }
+
+  const handleDeleteStaff = async (userId: string) => {
+    if (deleting || userId === currentAdminId) return
+    try {
+      setDeleting(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated. Please sign in again.')
+        setDeleting(false)
+        return
+      }
+      const response = await fetch(`/api/admin/users/${userId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || data.detail || 'Failed to delete staff.')
+        setDeleting(false)
+        return
+      }
+      setStaffDirectory(prev => prev.filter(u => u.id !== userId))
+      setFilteredStaff(prev => prev.filter(u => u.id !== userId))
+      setDeleteConfirmUser(null)
+      toast.success(data.message || 'Staff deleted.')
+    } catch (e: any) {
+      toast.error(e.message || 'An unexpected error occurred.')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   if (loading) {
@@ -344,11 +387,11 @@ export default function AdminUsersPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-4">
+                    <div className="mt-4 flex gap-2">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="w-full"
+                        className="flex-1"
                         onClick={(e) => {
                           e.stopPropagation()
                           navigate(`/admin/users/${user.id}`)
@@ -356,6 +399,18 @@ export default function AdminUsersPage() {
                       >
                         View Profile
                       </Button>
+                      {user.id !== currentAdminId && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteConfirmUser(user)
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -372,6 +427,29 @@ export default function AdminUsersPage() {
           )}
         </div>
       )}
+
+      <Dialog open={!!deleteConfirmUser} onOpenChange={(open) => !open && setDeleteConfirmUser(null)}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Delete Staff</DialogTitle>
+            <DialogDescription>
+              This will permanently remove this staff member and all their data, including all attendance records they created or are linked to. This action cannot be undone. If this staff member is a teacher and they are the only teacher for a grade and section, that grade and section (and its students) will also be deleted. Do you still wish to proceed?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteConfirmUser(null)} disabled={deleting}>
+              No
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirmUser && handleDeleteStaff(deleteConfirmUser.id)}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Yes, delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

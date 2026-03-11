@@ -50,13 +50,12 @@ export default function DashboardLayout() {
         ]
       case "hscp_officer":
         return [
-          // { href: "/hscp-officer", label: "Overview" },
-                 { href: "/hscp-officer/teacher-attendance", label: "View HSCP Attendance" },
-                 { href: "/hscp-officer/record-teacher-attendance", label: "Record Teacher Attendance" },
-                 { href: "/hscp-officer/record-student-attendance", label: "Record Student Attendance" },
-                 { href: "/hscp-officer/users", label: "HSCP Teacher Management" },
-                 { href: "/hscp-officer/student-attendance", label: "HSCP Student Lookup" },
-                 { href: "/profile", label: "Profile" },
+          { href: "/hscp-officer/record-teacher-attendance", label: "Record Teacher Attendance" },
+          { href: "/hscp-officer/record-student-attendance", label: "Record Student Attendance" },
+          { href: "/hscp-officer/teacher-attendance", label: "View HSCP Attendance" },
+          { href: "/hscp-officer/users", label: "HSCP Teacher Management" },
+          { href: "/hscp-officer/student-attendance", label: "HSCP Student Lookup" },
+          { href: "/profile", label: "Profile" },
         ]
       case "teacher":
       default:

@@ -272,7 +272,7 @@ export default function HSCPOfficerTeacherDetailPage() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center space-y-4">
           <p className="text-destructive">{error || 'Teacher not found'}</p>
-          <Button onClick={() => navigate('/hscp-officer/teachers')}>Back to Teachers Directory</Button>
+          <Button onClick={() => navigate('/hscp-officer/users?tab=directory')}>Back to Teachers Directory</Button>
         </div>
       </div>
     )
@@ -285,7 +285,7 @@ export default function HSCPOfficerTeacherDetailPage() {
         <div>
           <Button
             variant="ghost"
-            onClick={() => navigate('/hscp-officer/teachers')}
+            onClick={() => navigate('/hscp-officer/users?tab=directory')}
             className="mb-4"
           >
             ← Back to Teachers Directory

@@ -3,7 +3,18 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useRequireRole } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { StudentAttendanceSearch } from '@/features/admin/StudentAttendanceSearch'
+import { toast } from 'sonner'
+import { Trash2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -44,6 +55,8 @@ export default function AdminStudentAttendancePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [hscpSections, setHscpSections] = useState<HSCPSection[]>([])
   const [selectedHscpTab, setSelectedHscpTab] = useState<string>('Reading')
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Fetch available years when studentId is provided
   useEffect(() => {
@@ -256,6 +269,41 @@ export default function AdminStudentAttendancePage() {
     left_early: 'bg-[#e9d5ff] text-[#6b21a8]',
   }
 
+  const handleDeleteStudent = async () => {
+    if (!student || deleting) return
+    try {
+      setDeleting(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated. Please sign in again.')
+        setDeleting(false)
+        return
+      }
+      const response = await fetch(`/api/admin/students/${student.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || data.detail || 'Failed to delete student.')
+        setDeleting(false)
+        return
+      }
+      setDeleteConfirmOpen(false)
+      setStudent(null)
+      setAttendance([])
+      setSectionInfo(null)
+      setTeacherName(null)
+      setHscpSections([])
+      setAvailableYears(prev => prev.filter(y => y !== yearInput))
+      toast.success(data.message || 'Student deleted.')
+    } catch (e: any) {
+      toast.error(e.message || 'An unexpected error occurred.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -293,21 +341,34 @@ export default function AdminStudentAttendancePage() {
       {student && (
         <div className="space-y-6">
           <div className="bg-white rounded-[16px] p-6 shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
-            <h3 className="text-[1.75rem] font-heading font-bold text-[#0f172a] leading-tight mb-4">
-              {student.full_name}
-            </h3>
-            <div className="space-y-2">
-              <p className="text-sm text-[#64748b]">ID: {student.student_identifier ?? '-'}</p>
-              {sectionInfo && (
-                <p className="text-sm text-[#64748b]">
-                  {sectionInfo.grade.toUpperCase().startsWith('HSCP')
-                    ? `Grade: ${sectionInfo.grade}`
-                    : `Class: Grade ${sectionInfo.grade} - ${sectionInfo.section}`}
-                </p>
-              )}
-              {teacherName && (
-                <p className="text-sm text-[#64748b]">Teacher: {teacherName}</p>
-              )}
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-[1.75rem] font-heading font-bold text-[#0f172a] leading-tight mb-4">
+                  {student.full_name}
+                </h3>
+                <div className="space-y-2">
+                  <p className="text-sm text-[#64748b]">ID: {student.student_identifier ?? '-'}</p>
+                  {sectionInfo && (
+                    <p className="text-sm text-[#64748b]">
+                      {sectionInfo.grade.toUpperCase().startsWith('HSCP')
+                        ? `Grade: ${sectionInfo.grade}`
+                        : `Class: Grade ${sectionInfo.grade} - ${sectionInfo.section}`}
+                    </p>
+                  )}
+                  {teacherName && (
+                    <p className="text-sm text-[#64748b]">Teacher: {teacherName}</p>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-2 shrink-0"
+                onClick={() => setDeleteConfirmOpen(true)}
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Student
+              </Button>
             </div>
           </div>
 
@@ -421,6 +482,25 @@ export default function AdminStudentAttendancePage() {
           ) : null}
         </div>
       )}
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Delete Student</DialogTitle>
+            <DialogDescription>
+              This will permanently remove this student and all their attendance data. This action cannot be undone. Do you still wish to proceed?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)} disabled={deleting}>
+              No
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteStudent} disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Yes, delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -10,6 +10,7 @@ export default function AdminAttendancePage() {
       gradeLabel="Grade"
       csvPrefix="attendance"
       emptyMessage="No teachers or grades found."
+      canDeleteAttendance
     />
   )
 }

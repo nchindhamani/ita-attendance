@@ -139,6 +139,11 @@ export default function HSCPOfficerRecordTeacherAttendancePage() {
     navigate(`/hscp-officer/record-teacher-attendance?${params.toString()}`, { replace: true })
   }, [selectedGrade, selectedDate, navigate])
 
+  // ─── Close comment boxes when date changes ──────────────
+  useEffect(() => {
+    setShowCommentInputs({})
+  }, [selectedDate])
+
   // ─── Fetch teacher attendance for a date ───────────────
   const fetchAttendanceForDate = useCallback(
     async (date: string, currentSchoolYear: string) => {
@@ -446,7 +451,7 @@ export default function HSCPOfficerRecordTeacherAttendancePage() {
             </button>
           </div>
         </div>
-        {showCommentInput && (
+        {(showCommentInput || (entry?.comments && entry.comments.trim())) && (
           <div className="mt-3">
             <Input
               value={entry?.comments ?? ''}

@@ -85,7 +85,16 @@ export function LoginForm() {
         navigate("/dashboard");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      const message = err instanceof Error ? err.message : "An unexpected error occurred";
+      // "Failed to fetch" usually means Supabase is unreachable (paused project, network, or wrong URL)
+      if (message.toLowerCase().includes("failed to fetch") || message.toLowerCase().includes("fetch failed")) {
+        setError(
+          "Cannot reach Supabase. Check: (1) Supabase project is not paused (Dashboard → Project Settings), " +
+            "(2) VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local are correct, (3) restart dev server after env changes."
+        );
+      } else {
+        setError(message);
+      }
       setLoading(false);
     }
   }

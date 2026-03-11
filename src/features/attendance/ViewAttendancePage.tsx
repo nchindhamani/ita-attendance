@@ -8,9 +8,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DateInput } from '@/components/ui/date-input'
 import { AttendanceStatistics } from '@/features/attendance/AttendanceStatistics'
-import { Download } from 'lucide-react'
+import { Download, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import Papa from 'papaparse'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -101,6 +109,8 @@ export interface ViewAttendancePageProps {
   csvPrefix?: string
   /** Message when no data found */
   emptyMessage?: string
+  /** Allow admins to delete attendance per section */
+  canDeleteAttendance?: boolean
 }
 
 export default function ViewAttendancePage({
@@ -113,6 +123,7 @@ export default function ViewAttendancePage({
   emptyMessage = hscpOnly
     ? 'No HSCP teachers found. Please ensure HSCP teachers are created and approved.'
     : 'No teachers or grades found.',
+  canDeleteAttendance = false,
 }: ViewAttendancePageProps) {
   const { profile, loading: authLoading } = useRequireActiveProfile()
   const [searchParams] = useSearchParams()
@@ -136,6 +147,14 @@ export default function ViewAttendancePage({
   const [studentTabSelections, setStudentTabSelections] = useState<Record<string, string>>({})
   const [loadingStudents, setLoadingStudents] = useState(false)
   const [allGradesFromSections, setAllGradesFromSections] = useState<string[]>([])
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    type: 'teacher' | 'student'
+    sectionId?: string
+    sectionIds?: string[]
+    sectionName?: string
+    grade: string
+  } | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const teachersLoadedRef = useRef(false)
   const cachedSchoolYearRef = useRef<string>('2025-2026')
@@ -263,47 +282,89 @@ export default function ViewAttendancePage({
           const gradeSections = secData ?? []
           if (gradeSections.length === 0) continue
 
-          // Fetch students per section individually so we know which students belong to which section
+          const sectionIds = gradeSections.map((s) => s.id)
           const studentsBySec: Record<string, Student[]> = {}
-          const allStudentsMap = new Map<string, Student>()
           const attendanceBySec: Record<string, Record<string, StudentAttendanceRecord>> = {}
 
-          for (const sec of gradeSections) {
+          // HSCP: students are shared across Reading/Writing/Conversation — fetch all, dedupe, show same list per tab
+          // Regular grades: students per section
+          let studentsList: Student[]
+
+          if (isHSCPGrade) {
             const { data: stuData } = await supabase
               .from('students')
               .select('id,full_name,student_identifier')
-              .eq('section_id', sec.id)
+              .in('section_id', sectionIds)
               .eq('school_year', currentSchoolYear)
               .order('full_name', { ascending: true })
 
-            const sectionStudents = stuData ?? []
-            studentsBySec[sec.section] = sectionStudents
-            sectionStudents.forEach((s) => {
-              if (!allStudentsMap.has(s.id)) allStudentsMap.set(s.id, s)
+            const uniqueStudents = new Map<string, Student>()
+            ;(stuData ?? []).forEach((s) => {
+              if (!uniqueStudents.has(s.id)) uniqueStudents.set(s.id, s)
             })
+            studentsList = Array.from(uniqueStudents.values())
+            const allStudentIds = studentsList.map((s) => s.id)
 
-            // Fetch attendance for this section
-            attendanceBySec[sec.section] = {}
-            const secStudentIds = sectionStudents.map((s) => s.id)
-            if (secStudentIds.length > 0) {
-              const { data: attData } = await supabase
-                .from('student_attendance')
-                .select('student_id,status,comments')
-                .eq('attendance_date', date)
-                .eq('section_id', sec.id)
-                .in('student_id', secStudentIds)
+            // Same student list for every section
+            gradeSections.forEach((sec) => { studentsBySec[sec.section] = studentsList })
 
-              ;(attData ?? []).forEach((entry) => {
-                attendanceBySec[sec.section][entry.student_id] = {
-                  student_id: entry.student_id,
-                  status: entry.status as AttendanceStatus,
-                  comments: entry.comments ?? null,
-                }
-              })
+            // Fetch attendance per section for all students
+            for (const sec of gradeSections) {
+              attendanceBySec[sec.section] = {}
+              if (allStudentIds.length > 0) {
+                const { data: attData } = await supabase
+                  .from('student_attendance')
+                  .select('student_id,status,comments')
+                  .eq('attendance_date', date)
+                  .eq('section_id', sec.id)
+                  .in('student_id', allStudentIds)
+
+                ;(attData ?? []).forEach((entry) => {
+                  attendanceBySec[sec.section][entry.student_id] = {
+                    student_id: entry.student_id,
+                    status: entry.status as AttendanceStatus,
+                    comments: entry.comments ?? null,
+                  }
+                })
+              }
             }
-          }
+          } else {
+            const allStudentsMap = new Map<string, Student>()
+            for (const sec of gradeSections) {
+              const { data: stuData } = await supabase
+                .from('students')
+                .select('id,full_name,student_identifier')
+                .eq('section_id', sec.id)
+                .eq('school_year', currentSchoolYear)
+                .order('full_name', { ascending: true })
 
-          const studentsList = Array.from(allStudentsMap.values())
+              const sectionStudents = stuData ?? []
+              studentsBySec[sec.section] = sectionStudents
+              sectionStudents.forEach((s) => {
+                if (!allStudentsMap.has(s.id)) allStudentsMap.set(s.id, s)
+              })
+
+              attendanceBySec[sec.section] = {}
+              const secStudentIds = sectionStudents.map((s) => s.id)
+              if (secStudentIds.length > 0) {
+                const { data: attData } = await supabase
+                  .from('student_attendance')
+                  .select('student_id,status,comments')
+                  .eq('attendance_date', date)
+                  .eq('section_id', sec.id)
+                  .in('student_id', secStudentIds)
+
+                ;(attData ?? []).forEach((entry) => {
+                  attendanceBySec[sec.section][entry.student_id] = {
+                    student_id: entry.student_id,
+                    status: entry.status as AttendanceStatus,
+                    comments: entry.comments ?? null,
+                  }
+                })
+              }
+            }
+            studentsList = Array.from(allStudentsMap.values())
+          }
 
           gradeDataList.push({
             grade,
@@ -430,10 +491,41 @@ export default function ViewAttendancePage({
 
   // ─── Fetch student data when needed ────────────────────
   useEffect(() => {
-    if (!showStudents || availableGrades.length === 0 || !schoolYear) return
+    const needStudentData = showStudents || (canDeleteAttendance && showTeachers)
+    if (!needStudentData || availableGrades.length === 0 || !schoolYear) return
     const gradesToFetch = isAllGrades ? availableGrades : [selectedGrade]
     fetchStudentData(selectedDate, schoolYear, gradesToFetch)
-  }, [showStudents, selectedDate, schoolYear, availableGrades, selectedGrade, isAllGrades, fetchStudentData])
+  }, [showStudents, showTeachers, canDeleteAttendance, selectedDate, schoolYear, availableGrades, selectedGrade, isAllGrades, fetchStudentData])
+
+  // ─── Helpers: has saved attendance for delete button visibility ─────
+  const hasTeacherAttendanceForSection = useCallback(
+    (grade: string, sectionName: string) => {
+      const sectionTeachers = (teachersByGrade[grade] || []).filter(
+        (t) => t.grade === grade && t.section === sectionName
+      )
+      return sectionTeachers.some((t) => teacherAttendance[t.id] != null)
+    },
+    [teachersByGrade, teacherAttendance]
+  )
+
+  const hasStudentAttendanceForSection = useCallback(
+    (grade: string, sectionName: string) => {
+      const gd = studentDataByGrade.find((g) => g.grade === grade)
+      if (!gd) return false
+      const secAtt = gd.attendanceBySec[sectionName] || {}
+      return Object.keys(secAtt).length > 0
+    },
+    [studentDataByGrade]
+  )
+
+  /** True if any teacher in the grade has saved attendance. Used for HSCP grade-wise delete. */
+  const hasTeacherAttendanceForGrade = useCallback(
+    (grade: string) => {
+      const gradeTeachers = teachersByGrade[grade] || []
+      return gradeTeachers.some((t) => teacherAttendance[t.id] != null)
+    },
+    [teachersByGrade, teacherAttendance]
+  )
 
   // ─── Statistics helpers ────────────────────────────────
   const getStatsForTeachers = useCallback(
@@ -474,6 +566,54 @@ export default function ViewAttendancePage({
 
   const handleGradeChange = (grade: string) => {
     setSelectedGrade(grade)
+  }
+
+  const handleDeleteAttendance = async () => {
+    if (!deleteConfirm) return
+    try {
+      setDeleting(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated.')
+        setDeleting(false)
+        return
+      }
+      const url = deleteConfirm.type === 'teacher'
+        ? '/api/admin/attendance/delete-teacher'
+        : '/api/admin/attendance/delete-student'
+      const sectionIdsToDelete = deleteConfirm.sectionIds ?? (deleteConfirm.sectionId ? [deleteConfirm.sectionId] : [])
+      for (const sectionId of sectionIdsToDelete) {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            section_id: sectionId,
+            attendance_date: selectedDate,
+            school_year: schoolYear,
+          }),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          toast.error(data.error || data.detail || 'Failed to delete.')
+          setDeleting(false)
+          return
+        }
+      }
+      setDeleteConfirm(null)
+      toast.success(sectionIdsToDelete.length > 1 ? 'Attendance deleted for all sections.' : 'Attendance deleted.')
+      fetchAttendanceForDate(selectedDate, cachedSchoolYearRef.current)
+      if (showStudents) {
+        const gradesToFetch = isAllGrades ? availableGrades : [selectedGrade]
+        fetchStudentData(selectedDate, schoolYear, gradesToFetch)
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'An error occurred.')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const handleDownloadCSV = () => {
@@ -659,6 +799,7 @@ export default function ViewAttendancePage({
     }
 
     const activeTab = studentTabSelections[grade] || gradeData.sections[0]?.section || ''
+    const activeSection = gradeData.sections.find((s) => s.section === activeTab)
     const secAtt = gradeData.attendanceBySec[activeTab] || {}
     // Use section-specific student list; for HSCP grades (shared students) fall back to full list
     const activeStudents = gradeData.studentsBySec[activeTab] ?? gradeData.students
@@ -699,6 +840,7 @@ export default function ViewAttendancePage({
     const gradeTeachers = teachersByGrade[grade] || []
     const gradeTeacherIds = gradeTeachers.map((t) => t.id)
     const gradeTeacherStats = getStatsForTeachers(gradeTeacherIds)
+    const gradeData = studentDataByGrade.find((g) => g.grade === grade)
 
     return (
       <Card key={grade} className="border border-[#e5e7eb] shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
@@ -721,6 +863,51 @@ export default function ViewAttendancePage({
                     <div className="space-y-3">
                       {gradeTeachers.map((t) => renderTeacherCard(t))}
                     </div>
+                    {canDeleteAttendance && (
+                      <div className="flex flex-wrap gap-2">
+                        {grade.toUpperCase().startsWith('HSCP') ? (
+                          hasTeacherAttendanceForGrade(grade) && gradeData && (
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="gap-2"
+                              onClick={() =>
+                                setDeleteConfirm({
+                                  type: 'teacher',
+                                  sectionIds: gradeData.sections.map((s) => s.id),
+                                  grade: formatGradeDisplay(grade),
+                                })
+                              }
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete Teacher Attendance ({formatGradeDisplay(grade)})
+                            </Button>
+                          )
+                        ) : (
+                          gradeData?.sections
+                            .filter((sec) => hasTeacherAttendanceForSection(grade, sec.section))
+                            .map((sec) => (
+                              <Button
+                                key={sec.id}
+                                variant="destructive"
+                                size="sm"
+                                className="gap-2"
+                                onClick={() =>
+                                  setDeleteConfirm({
+                                    type: 'teacher',
+                                    sectionId: sec.id,
+                                    sectionName: sec.section,
+                                    grade: formatGradeDisplay(grade),
+                                  })
+                                }
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                Delete Teacher Attendance ({sec.section})
+                              </Button>
+                            ))
+                        )}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-muted-foreground text-center py-4">
@@ -734,12 +921,37 @@ export default function ViewAttendancePage({
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold text-[#0f172a] border-b border-gray-200 pb-2">
                   Students
-                  {studentDataByGrade.find((g) => g.grade === grade) && (
+                  {gradeData && (
                     <span className="text-sm font-normal text-muted-foreground ml-2">
-                      ({studentDataByGrade.find((g) => g.grade === grade)?.students.length ?? 0})
+                      ({gradeData.students.length})
                     </span>
                   )}
                 </h3>
+                {canDeleteAttendance && gradeData && (
+                  <div className="flex flex-wrap gap-2">
+                    {gradeData.sections
+                      .filter((sec) => hasStudentAttendanceForSection(grade, sec.section))
+                      .map((sec) => (
+                        <Button
+                          key={sec.id}
+                          variant="destructive"
+                          size="sm"
+                          className="gap-2"
+                          onClick={() =>
+                            setDeleteConfirm({
+                              type: 'student',
+                              sectionId: sec.id,
+                              sectionName: sec.section,
+                              grade: formatGradeDisplay(grade),
+                            })
+                          }
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete Student Attendance ({sec.section})
+                        </Button>
+                      ))}
+                  </div>
+                )}
                 <Card className="border border-[#e2e8f0] bg-[#f8fafc] shadow-sm">
                   <CardContent className="pt-4">
                     {renderStudentSection(grade)}
@@ -795,6 +1007,7 @@ export default function ViewAttendancePage({
     const gradeTeachers = teachersByGrade[selectedGrade] || []
     const gradeTeacherIds = gradeTeachers.map((t) => t.id)
     const gradeTeacherStats = getStatsForTeachers(gradeTeacherIds)
+    const gradeData = studentDataByGrade.find((g) => g.grade === selectedGrade)
 
     return (
       <div className="space-y-6">
@@ -812,6 +1025,51 @@ export default function ViewAttendancePage({
                 <div className="space-y-3">
                   {gradeTeachers.map((t) => renderTeacherCard(t))}
                 </div>
+                {canDeleteAttendance && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedGrade.toUpperCase().startsWith('HSCP') ? (
+                      hasTeacherAttendanceForGrade(selectedGrade) && gradeData && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="gap-2"
+                          onClick={() =>
+                            setDeleteConfirm({
+                              type: 'teacher',
+                              sectionIds: gradeData.sections.map((s) => s.id),
+                              grade: formatGradeDisplay(selectedGrade),
+                            })
+                          }
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete Teacher Attendance ({formatGradeDisplay(selectedGrade)})
+                        </Button>
+                      )
+                    ) : (
+                      gradeData?.sections
+                        .filter((sec) => hasTeacherAttendanceForSection(selectedGrade, sec.section))
+                        .map((sec) => (
+                          <Button
+                            key={sec.id}
+                            variant="destructive"
+                            size="sm"
+                            className="gap-2"
+                            onClick={() =>
+                              setDeleteConfirm({
+                                type: 'teacher',
+                                sectionId: sec.id,
+                                sectionName: sec.section,
+                                grade: formatGradeDisplay(selectedGrade),
+                              })
+                            }
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete Teacher Attendance ({sec.section})
+                          </Button>
+                        ))
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <Card>
@@ -829,12 +1087,37 @@ export default function ViewAttendancePage({
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-[#0f172a] border-b border-gray-200 pb-2">
               Students
-              {studentDataByGrade.find((g) => g.grade === selectedGrade) && (
+              {gradeData && (
                 <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({studentDataByGrade.find((g) => g.grade === selectedGrade)?.students.length ?? 0})
+                  ({gradeData.students.length})
                 </span>
               )}
             </h3>
+            {canDeleteAttendance && gradeData && (
+              <div className="flex flex-wrap gap-2">
+                {gradeData.sections
+                  .filter((sec) => hasStudentAttendanceForSection(selectedGrade, sec.section))
+                  .map((sec) => (
+                    <Button
+                      key={sec.id}
+                      variant="destructive"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() =>
+                        setDeleteConfirm({
+                          type: 'student',
+                          sectionId: sec.id,
+                          sectionName: sec.section,
+                          grade: formatGradeDisplay(selectedGrade),
+                        })
+                      }
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete Student Attendance ({sec.section})
+                    </Button>
+                  ))}
+              </div>
+            )}
             <Card className="border border-[#e2e8f0] bg-[#f8fafc] shadow-sm">
               <CardContent className="pt-4">
                 {renderStudentSection(selectedGrade)}
@@ -949,6 +1232,31 @@ export default function ViewAttendancePage({
 
       {/* SINGLE GRADE VIEW */}
       {!isAllGrades && selectedGrade && renderSingleGradeView()}
+
+      {canDeleteAttendance && (
+        <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+          <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+            <DialogHeader>
+              <DialogTitle>
+                Delete {deleteConfirm?.type === 'teacher' ? 'Teacher' : 'Student'} Attendance
+              </DialogTitle>
+              <DialogDescription>
+                {deleteConfirm?.sectionIds && deleteConfirm.sectionIds.length > 1
+                  ? `This will permanently remove all teacher attendance records for ${deleteConfirm.grade} (all sections) on ${selectedDate}. This action cannot be undone. Do you still wish to proceed?`
+                  : `This will permanently remove all ${deleteConfirm?.type === 'teacher' ? 'teacher' : 'student'} attendance records for ${deleteConfirm?.grade}${deleteConfirm?.sectionName ? ` - ${deleteConfirm.sectionName}` : ''} on ${selectedDate}. This action cannot be undone. Do you still wish to proceed?`}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleting}>
+                No
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteAttendance} disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Yes, delete'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

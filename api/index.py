@@ -3569,6 +3569,200 @@ async def update_user_profile(
             content={"error": f"Failed to update profile: {str(e)}"}
         )
 
+
+@api_router.delete("/admin/users/{profile_id}")
+async def delete_staff(
+    profile_id: str,
+    profile: dict = Depends(get_current_profile),
+):
+    """
+    Permanently delete a staff member: profile, all their attendance data, and auth user.
+    If the staff is a teacher and the only teacher for a grade/section, delete that section and its students too.
+    Only admins can call this. Cannot delete self.
+    """
+    try:
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can delete staff")
+        if profile.get("id") == profile_id:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "You cannot delete your own account."},
+            )
+
+        admin_supabase = get_supabase_admin_client()
+
+        # Get target user
+        target_response = admin_supabase.table("profiles").select("id,role").eq("id", profile_id).maybe_single().execute()
+        if not target_response or not getattr(target_response, "data", None) or not target_response.data:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        target_role = target_response.data.get("role", "")
+
+        # 1) Delete teacher_attendance where teacher_id or recorded_by = profile_id
+        admin_supabase.table("teacher_attendance").delete().eq("teacher_id", profile_id).execute()
+        admin_supabase.table("teacher_attendance").delete().eq("recorded_by", profile_id).execute()
+
+        # 2) Delete student_attendance where recorded_by = profile_id
+        admin_supabase.table("student_attendance").delete().eq("recorded_by", profile_id).execute()
+
+        # 3) Delete other_staff_attendance where staff_id or recorded_by = profile_id
+        try:
+            admin_supabase.table("other_staff_attendance").delete().eq("staff_id", profile_id).execute()
+        except Exception:
+            pass
+        try:
+            admin_supabase.table("other_staff_attendance").delete().eq("recorded_by", profile_id).execute()
+        except Exception:
+            pass
+
+        # 4) If teacher: handle teacher_sections and optionally sections/students
+        if target_role == "teacher":
+            ts_response = admin_supabase.table("teacher_sections").select("section_id").eq("teacher_id", profile_id).execute()
+            section_ids = [r["section_id"] for r in (ts_response.data or [])]
+
+            for section_id in section_ids:
+                # Count teachers assigned to this section (before we remove current teacher)
+                count_response = admin_supabase.table("teacher_sections").select("teacher_id").eq("section_id", section_id).execute()
+                teacher_ids = [r["teacher_id"] for r in (count_response.data or [])]
+                count = len(teacher_ids)
+                if count != 1:
+                    continue
+                # Only teacher for this section: delete students and section
+                section_row = admin_supabase.table("sections").select("id,school_year").eq("id", section_id).maybe_single().execute()
+                if not section_row or not section_row.data:
+                    continue
+                school_year = section_row.data.get("school_year")
+                students_response = admin_supabase.table("students").select("id").eq("section_id", section_id).eq("school_year", school_year).execute()
+                student_ids = [s["id"] for s in (students_response.data or [])]
+                for sid in student_ids:
+                    admin_supabase.table("student_attendance").delete().eq("student_id", sid).execute()
+                admin_supabase.table("students").delete().eq("section_id", section_id).eq("school_year", school_year).execute()
+                admin_supabase.table("sections").delete().eq("id", section_id).execute()
+
+            admin_supabase.table("teacher_sections").delete().eq("teacher_id", profile_id).execute()
+
+        # 5) Delete profile
+        admin_supabase.table("profiles").delete().eq("id", profile_id).execute()
+
+        # 6) Delete auth user
+        SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+        SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            log_warning("Supabase config missing; profile deleted but auth user may remain")
+        else:
+            auth_url = f"{SUPABASE_URL}/auth/v1/admin/users/{profile_id}"
+            headers = {
+                "apikey": SUPABASE_SERVICE_ROLE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            }
+            async with httpx.AsyncClient() as client:
+                resp = await client.delete(auth_url, headers=headers, timeout=30.0)
+                if resp.status_code not in [200, 204]:
+                    log_warning(f"Auth delete returned {resp.status_code}: {resp.text}")
+
+        log_info(f"Staff {profile_id} deleted by admin {profile.get('email')}")
+        return {"success": True, "message": "Staff and all related data have been permanently deleted."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in delete_staff: {str(e)}")
+        log_error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
+        )
+
+
+@api_router.delete("/admin/students/{student_id}")
+async def delete_student(
+    student_id: str,
+    profile: dict = Depends(get_current_profile),
+):
+    """
+    Permanently delete a student and all their attendance data. Admin only.
+    """
+    try:
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can delete students")
+
+        admin_supabase = get_supabase_admin_client()
+
+        # Verify student exists
+        student_response = admin_supabase.table("students").select("id").eq("id", student_id).maybe_single().execute()
+        if not student_response or not getattr(student_response, "data", None) or not student_response.data:
+            raise HTTPException(status_code=404, detail="Student not found")
+
+        # Delete student_attendance for this student
+        admin_supabase.table("student_attendance").delete().eq("student_id", student_id).execute()
+        # Delete student
+        admin_supabase.table("students").delete().eq("id", student_id).execute()
+
+        log_info(f"Student {student_id} deleted by admin {profile.get('email')}")
+        return {"success": True, "message": "Student and all attendance data have been permanently deleted."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in delete_student: {str(e)}")
+        log_error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
+        )
+
+
+class DeleteSectionAttendanceRequest(BaseModel):
+    section_id: str
+    attendance_date: str
+    school_year: str
+
+
+@api_router.post("/admin/attendance/delete-teacher")
+async def delete_teacher_attendance_by_section(
+    payload: DeleteSectionAttendanceRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """Delete teacher attendance for all teachers in a section, for a specific date. Admin only."""
+    try:
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can delete attendance")
+        admin_supabase = get_supabase_admin_client()
+        ts_response = admin_supabase.table("teacher_sections").select("teacher_id").eq("section_id", payload.section_id).execute()
+        teacher_ids = [r["teacher_id"] for r in (ts_response.data or [])]
+        if not teacher_ids:
+            return {"success": True, "message": "No teacher attendance to delete."}
+        for tid in teacher_ids:
+            admin_supabase.table("teacher_attendance").delete().eq("teacher_id", tid).eq("attendance_date", payload.attendance_date).eq("school_year", payload.school_year).execute()
+        log_info(f"Admin {profile.get('email')} deleted teacher attendance for section {payload.section_id} on {payload.attendance_date}")
+        return {"success": True, "message": "Teacher attendance deleted."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in delete_teacher_attendance_by_section: {str(e)}")
+        log_error(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@api_router.post("/admin/attendance/delete-student")
+async def delete_student_attendance_by_section(
+    payload: DeleteSectionAttendanceRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """Delete student attendance for a section, for a specific date. Admin only."""
+    try:
+        if profile.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can delete attendance")
+        admin_supabase = get_supabase_admin_client()
+        admin_supabase.table("student_attendance").delete().eq("section_id", payload.section_id).eq("attendance_date", payload.attendance_date).eq("school_year", payload.school_year).execute()
+        log_info(f"Admin {profile.get('email')} deleted student attendance for section {payload.section_id} on {payload.attendance_date}")
+        return {"success": True, "message": "Student attendance deleted."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in delete_student_attendance_by_section: {str(e)}")
+        log_error(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @api_router.get("/admin/users", response_model=UsersListResponse)
 async def get_all_users(
     profile: dict = Depends(get_current_profile),

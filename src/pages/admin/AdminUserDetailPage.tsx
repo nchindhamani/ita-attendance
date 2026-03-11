@@ -9,9 +9,25 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { UserManagementActions } from '@/features/admin/UserManagementActions'
 import { Role, ROLE_PERMISSIONS, ROLE_DESCRIPTIONS, ROLE_ICONS } from '@/lib/types'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { toast } from 'sonner'
-import { Star, Shield, Edit, Save, X, Key } from 'lucide-react'
+import { Star, Shield, Edit, Save, X, Key, Trash2 } from 'lucide-react'
 import { TemporaryPasswordDialog } from '@/components/admin/TemporaryPasswordDialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -57,6 +73,9 @@ export default function AdminUserDetailPage() {
     role: string
     password: string
   } | null>(null)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [teacherStudents, setTeacherStudents] = useState<{ id: string; student_identifier: number | null; full_name: string }[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -129,9 +148,94 @@ export default function AdminUserDetailPage() {
     fetchData()
   }, [id, navigate])
 
+  // Fetch students for teachers
+  useEffect(() => {
+    if (!user || user.role !== 'teacher') {
+      setTeacherStudents([])
+      return
+    }
+    const fetchTeacherStudents = async () => {
+      try {
+        const { data: settings } = await supabase
+          .from('system_settings')
+          .select('current_school_year')
+          .eq('id', 1)
+          .maybeSingle()
+        const schoolYear = settings?.current_school_year || '2025-2026'
+
+        const { data: assignments } = await supabase
+          .from('teacher_sections')
+          .select('section_id')
+          .eq('teacher_id', user.id)
+
+        if (!assignments || assignments.length === 0) {
+          setTeacherStudents([])
+          return
+        }
+
+        const sectionIds = [...new Set(assignments.map((a) => a.section_id))]
+        const allStudents: { id: string; student_identifier: number | null; full_name: string }[] = []
+        const seen = new Set<string>()
+
+        for (const sectionId of sectionIds) {
+          const { data: students } = await supabase
+            .from('students')
+            .select('id,student_identifier,full_name')
+            .eq('section_id', sectionId)
+            .eq('school_year', schoolYear)
+          for (const s of students || []) {
+            if (!seen.has(s.id)) {
+              seen.add(s.id)
+              allStudents.push({
+                id: s.id,
+                student_identifier: s.student_identifier,
+                full_name: s.full_name || '',
+              })
+            }
+          }
+        }
+        allStudents.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+        setTeacherStudents(allStudents)
+      } catch {
+        setTeacherStudents([])
+      }
+    }
+    fetchTeacherStudents()
+  }, [user?.id, user?.role])
+
   const handleUserUpdated = () => {
     // Refresh data after user action
     window.location.reload()
+  }
+
+  const handleDeleteStaff = async () => {
+    if (!id || deleting) return
+    try {
+      setDeleting(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated. Please sign in again.')
+        setDeleting(false)
+        return
+      }
+      const response = await fetch(`/api/admin/users/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || data.detail || 'Failed to delete staff.')
+        setDeleting(false)
+        return
+      }
+      setDeleteConfirmOpen(false)
+      toast.success(data.message || 'Staff deleted.')
+      navigate('/admin/users?tab=directory')
+    } catch (e: any) {
+      toast.error(e.message || 'An unexpected error occurred.')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const handleShowTemporaryPassword = async () => {
@@ -609,6 +713,42 @@ export default function AdminUserDetailPage() {
             </Card>
           )}
 
+          {/* Students (only for teachers) */}
+          {user.role === 'teacher' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Students</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Students assigned to this teacher's sections.
+                </p>
+              </CardHeader>
+              <CardContent>
+                {teacherStudents.length > 0 ? (
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Student ID</TableHead>
+                          <TableHead>Student Name</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {teacherStudents.map((s) => (
+                          <TableRow key={s.id}>
+                            <TableCell>{s.student_identifier ?? '-'}</TableCell>
+                            <TableCell>{s.full_name}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No students assigned.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* System Information */}
           <Card>
             <CardHeader>
@@ -654,6 +794,19 @@ export default function AdminUserDetailPage() {
                     isSelf={isSelf}
                     onUserUpdated={handleUserUpdated}
                   />
+                  {!isSelf && (
+                    <div className="pt-4 border-t border-gray-200">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => setDeleteConfirmOpen(true)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete Staff
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -757,6 +910,25 @@ export default function AdminUserDetailPage() {
           successMessage="Profile Updated Successfully"
         />
       )}
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Delete Staff</DialogTitle>
+            <DialogDescription>
+              This will permanently remove this staff member and all their data, including all attendance records they created or are linked to. This action cannot be undone. If this staff member is a teacher and they are the only teacher for a grade and section, that grade and section (and its students) will also be deleted. Do you still wish to proceed?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)} disabled={deleting}>
+              No
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteStaff} disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Yes, delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
