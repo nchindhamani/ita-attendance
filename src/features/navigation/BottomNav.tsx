@@ -38,7 +38,6 @@ interface BottomNavProps {
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "Admin Overview": LayoutDashboard,
   "My Class": LayoutDashboard,
-  "User Management": Users,
   "Staff Management": Users,
   "Attendance": Calendar,
   "History": Calendar,
@@ -57,7 +56,6 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   // Principal & Admin
   "Overview": LayoutDashboard,
   "Record Volunteer/Staff Attendance": HandHeart,
-  "Staff Management": UserPlus,
   "Student Attendance": Search,
   "Teacher Attendance": ClipboardCheck,
   "User Profiles": Users,
@@ -67,7 +65,6 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 const labelMap: Record<string, string> = {
   "Admin Overview": "Admin",
   "My Class": "Classes",
-  "User Management": "Users",
   "Staff Management": "Staff",
   "Attendance": "Attendance",
   "History": "History",
@@ -85,7 +82,6 @@ const labelMap: Record<string, string> = {
   "Teacher Management": "Tchr Mgmt",
   // Principal & Admin
   "Record Volunteer/Staff Attendance": "Vol/Staff Att.",
-  "Staff Management": "Staff Mgmt",
   "Student Attendance": "Stu Att.",
   "Teacher Attendance": "Tchr Att.",
   "User Profiles": "Users",
