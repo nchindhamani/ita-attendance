@@ -48,6 +48,9 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "HSCP Teacher Management": UserCog,
   "Record Student Attendance": PenSquare,
   "HSCP Student Lookup": Search,
+  // Attendance Officer
+  "View Attendance": Eye,
+  "Teacher Management": UserCog,
   // Principal & Admin
   "Overview": LayoutDashboard,
   "Record Volunteer/Staff Attendance": HandHeart,
@@ -73,6 +76,9 @@ const labelMap: Record<string, string> = {
   "HSCP Teacher Management": "Tchr Mgmt",
   "Record Student Attendance": "Rec Stu Att.",
   "HSCP Student Lookup": "Stu Lookup",
+  // Attendance Officer
+  "View Attendance": "View Att.",
+  "Teacher Management": "Tchr Mgmt",
   // Principal & Admin
   "Record Volunteer/Staff Attendance": "Vol/Staff Att.",
   "Staff Management": "Staff Mgmt",

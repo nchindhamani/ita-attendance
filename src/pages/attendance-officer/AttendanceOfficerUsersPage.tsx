@@ -1,17 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { UserManagementActions } from '@/features/admin/UserManagementActions'
 import { EmptyState } from '@/components/ui/empty-state'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useRequireRole } from '@/lib/auth-client'
@@ -33,19 +24,16 @@ type Teacher = {
   created_at: string
 }
 
-export default function HSCPOfficerUsersPage() {
-  useRequireRole('hscp_officer')
+export default function AttendanceOfficerUsersPage() {
+  useRequireRole('attendance_officer')
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const activeTab = searchParams.get('tab') || 'directory'
-  
-  const [approvalQueue, setApprovalQueue] = useState<Teacher[]>([])
   const [teachersDirectory, setTeachersDirectory] = useState<Teacher[]>([])
   const [filteredTeachers, setFilteredTeachers] = useState<Teacher[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [currentOfficerId, setCurrentOfficerId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const activeTab = (searchParams.get('tab') as 'directory' | 'create') || 'directory'
 
   useEffect(() => {
     const fetchData = async () => {
@@ -53,20 +41,12 @@ export default function HSCPOfficerUsersPage() {
         setLoading(true)
         setError(null)
 
-        // Get session for authentication
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) {
           navigate('/auth/login')
           return
         }
 
-        // Get current HSCP officer profile ID
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          setCurrentOfficerId(user.id)
-        }
-
-        // Fetch all users from backend API (filtered to HSCP teachers for HSCP officers)
         const response = await fetch('/api/admin/users', {
           method: 'GET',
           headers: {
@@ -83,17 +63,8 @@ export default function HSCPOfficerUsersPage() {
         const data = await response.json()
         const allUsers = data.users || []
 
-        // Filter to only HSCP teachers (teachers with grade starting with 'HSCP')
-        const hscpTeachers = allUsers.filter((user: Teacher) => {
-          const grade = user.grade?.toUpperCase() || ''
-          return user.role === 'teacher' && grade.startsWith('HSCP')
-        })
+        const teachers = allUsers.filter((user: Teacher) => user.role === 'teacher')
 
-        // Filter into approval queue and teachers directory
-        const approval = hscpTeachers.filter((user: Teacher) => !user.is_approved)
-        const teachers = hscpTeachers.filter((user: Teacher) => user.is_approved)
-
-        setApprovalQueue(approval)
         setTeachersDirectory(teachers)
         setFilteredTeachers(teachers)
       } catch (err) {
@@ -108,14 +79,12 @@ export default function HSCPOfficerUsersPage() {
     fetchData()
   }, [navigate])
 
-  // Filter teachers directory based on search
   useEffect(() => {
     let filtered = teachersDirectory
 
-    // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(teacher => 
+      filtered = filtered.filter(teacher =>
         teacher.full_name?.toLowerCase().includes(query) ||
         teacher.email?.toLowerCase().includes(query) ||
         teacher.grade?.toLowerCase().includes(query) ||
@@ -132,7 +101,6 @@ export default function HSCPOfficerUsersPage() {
   }
 
   const handleUserUpdated = () => {
-    // Refresh data after user action
     window.location.reload()
   }
 
@@ -159,100 +127,37 @@ export default function HSCPOfficerUsersPage() {
     <div className="space-y-12">
       <div className="space-y-3">
         <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">
-          HSCP Teacher Management
+          Teacher Management
         </h2>
         <p className="text-base text-muted-foreground">
-          Approve, view, and manage HSCP teachers.
+          View and manage all teachers.
         </p>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-2 border-b">
         <Button
           variant={activeTab === 'directory' ? 'default' : 'outline'}
           asChild
         >
-          <Link to="/hscp-officer/users?tab=directory">HSCP Teachers Directory ({teachersDirectory.length})</Link>
+          <Link to="/attendance-officer/users?tab=directory">Teachers Directory ({teachersDirectory.length})</Link>
         </Button>
         <Button
           variant={activeTab === 'create' ? 'default' : 'outline'}
           asChild
         >
-          <Link to="/hscp-officer/users?tab=create">Create HSCP Teacher</Link>
-        </Button>
-        <Button
-          variant={activeTab === 'approval' ? 'default' : 'outline'}
-          asChild
-        >
-          <Link to="/hscp-officer/users?tab=approval">Approval Queue ({approvalQueue.length})</Link>
+          <Link to="/attendance-officer/users?tab=create">Create Teacher</Link>
         </Button>
       </div>
 
       {activeTab === 'create' ? (
         <CreateTeacherPage
           onTeacherCreated={handleUserUpdated}
-          hscpOnly
-          detailPath={(id) => `/hscp-officer/teachers/${id}`}
-          directoryPath="/hscp-officer/users?tab=directory"
+          hscpOnly={false}
+          detailPath={(id) => `/attendance-officer/teachers/${id}`}
+          directoryPath="/attendance-officer/users?tab=directory"
         />
-      ) : activeTab === 'approval' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Approval Queue</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {approvalQueue.length > 0 ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Grade</TableHead>
-                      <TableHead>Section</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {approvalQueue.map((teacher) => (
-                      <TableRow key={teacher.id}>
-                        <TableCell>
-                          <Link
-                            to={`/hscp-officer/teachers/${teacher.id}`}
-                            className="font-medium text-primary underline"
-                          >
-                            {teacher.full_name ?? 'Unknown'}
-                          </Link>
-                        </TableCell>
-                        <TableCell>{teacher.email || 'No email'}</TableCell>
-                        <TableCell>{teacher.grade ?? '-'}</TableCell>
-                        <TableCell>{teacher.section ?? '-'}</TableCell>
-                        <TableCell>
-                          <UserManagementActions
-                            userId={teacher.id}
-                            isApproved={teacher.is_approved}
-                            isActive={teacher.is_active}
-                            role={teacher.role as 'teacher'}
-                            view="approval"
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <EmptyState
-                icon="users"
-                title="No pending approvals"
-                description="All HSCP teachers have been approved."
-              />
-            )}
-          </CardContent>
-        </Card>
       ) : (
         <div className="space-y-6">
-          {/* Search */}
           <div className="relative flex-1 max-w-md">
             <Input
               placeholder="Search by name, email, grade, or section..."
@@ -263,14 +168,13 @@ export default function HSCPOfficerUsersPage() {
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">🔍</span>
           </div>
 
-          {/* Teachers Cards Grid */}
           {filteredTeachers.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredTeachers.map((teacher) => (
-                <Card 
-                  key={teacher.id} 
+                <Card
+                  key={teacher.id}
                   className="hover:shadow-lg transition-shadow cursor-pointer"
-                  onClick={() => navigate(`/hscp-officer/teachers/${teacher.id}`)}
+                  onClick={() => navigate(`/attendance-officer/teachers/${teacher.id}`)}
                 >
                   <CardContent className="p-6">
                     <div className="flex items-start gap-4">
@@ -287,8 +191,8 @@ export default function HSCPOfficerUsersPage() {
                             </span>
                           )}
                           <span className={`px-2 py-1 text-xs rounded-full ${
-                            teacher.is_active 
-                              ? 'bg-green-100 text-green-700' 
+                            teacher.is_active
+                              ? 'bg-green-100 text-green-700'
                               : 'bg-red-100 text-red-700'
                           }`}>
                             {teacher.is_active ? 'Active' : 'Inactive'}
@@ -303,7 +207,7 @@ export default function HSCPOfficerUsersPage() {
                         className="w-full"
                         onClick={(e) => {
                           e.stopPropagation()
-                          navigate(`/hscp-officer/teachers/${teacher.id}`)
+                          navigate(`/attendance-officer/teachers/${teacher.id}`)
                         }}
                       >
                         View Profile
@@ -316,10 +220,10 @@ export default function HSCPOfficerUsersPage() {
           ) : (
             <EmptyState
               icon="users"
-              title="No HSCP teachers found"
-              description={searchQuery 
+              title="No teachers found"
+              description={searchQuery
                 ? "Try adjusting your search."
-                : "No HSCP teachers are currently registered."}
+                : "No teachers are currently registered."}
             />
           )}
         </div>
@@ -327,6 +231,3 @@ export default function HSCPOfficerUsersPage() {
     </div>
   )
 }
-
-
-

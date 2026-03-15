@@ -18,7 +18,7 @@ export default function DashboardPage() {
         navigate('/principal', { replace: true })
         break
       case 'attendance_officer':
-        navigate('/attendance-officer', { replace: true })
+        navigate('/attendance-officer/record-teacher-attendance', { replace: true })
         break
       case 'hscp_officer':
         navigate('/hscp-officer/record-teacher-attendance', { replace: true })

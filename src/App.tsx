@@ -40,9 +40,12 @@ import PrincipalStaffAttendancePage from './pages/principal/PrincipalStaffAttend
 import PrincipalStaffManagementPage from './pages/principal/PrincipalStaffManagementPage'
 
 // Attendance Officer pages
-import AttendanceOfficerPage from './pages/attendance-officer/AttendanceOfficerPage'
-import AttendanceOfficerAttendancePage from './pages/attendance-officer/AttendanceOfficerAttendancePage'
-import AttendanceOfficerStudentsPage from './pages/attendance-officer/AttendanceOfficerStudentsPage'
+import AttendanceOfficerRecordTeacherAttendancePage from './pages/attendance-officer/AttendanceOfficerRecordTeacherAttendancePage'
+import AttendanceOfficerRecordStudentAttendancePage from './pages/attendance-officer/AttendanceOfficerRecordStudentAttendancePage'
+import AttendanceOfficerViewAttendancePage from './pages/attendance-officer/AttendanceOfficerViewAttendancePage'
+import AttendanceOfficerUsersPage from './pages/attendance-officer/AttendanceOfficerUsersPage'
+import AttendanceOfficerTeacherDetailPage from './pages/attendance-officer/AttendanceOfficerTeacherDetailPage'
+import AttendanceOfficerStudentLookupPage from './pages/attendance-officer/AttendanceOfficerStudentLookupPage'
 
 // HSCP Officer pages
 import HSCPOfficerPage from './pages/hscp-officer/HSCPOfficerPage'
@@ -115,9 +118,13 @@ function App() {
           <Route path="/principal/users" element={<PrincipalUsersPage />} />
           
           {/* Attendance Officer routes */}
-          <Route path="/attendance-officer" element={<AttendanceOfficerPage />} />
-          <Route path="/attendance-officer/attendance" element={<AttendanceOfficerAttendancePage />} />
-          <Route path="/attendance-officer/students" element={<AttendanceOfficerStudentsPage />} />
+          <Route path="/attendance-officer" element={<AttendanceOfficerRecordTeacherAttendancePage />} />
+          <Route path="/attendance-officer/record-teacher-attendance" element={<AttendanceOfficerRecordTeacherAttendancePage />} />
+          <Route path="/attendance-officer/record-student-attendance" element={<AttendanceOfficerRecordStudentAttendancePage />} />
+          <Route path="/attendance-officer/teacher-attendance" element={<AttendanceOfficerViewAttendancePage />} />
+          <Route path="/attendance-officer/users" element={<AttendanceOfficerUsersPage />} />
+          <Route path="/attendance-officer/teachers/:id" element={<AttendanceOfficerTeacherDetailPage />} />
+          <Route path="/attendance-officer/student-attendance" element={<AttendanceOfficerStudentLookupPage />} />
           
           {/* HSCP Officer routes */}
           {/* <Route path="/hscp-officer" element={<HSCPOfficerPage />} /> */}

@@ -1110,10 +1110,10 @@ async def save_teacher_attendance(
     try:
         log_info(f"save_teacher_attendance called with payload: date={payload.attendanceDate}, entries={len(payload.entries)}")
         
-        # Check if user is admin or HSCP officer
+        # Check if user is admin, HSCP officer, or attendance officer
         current_role = profile.get("role")
-        if current_role not in ["admin", "hscp_officer"]:
-            raise HTTPException(status_code=403, detail="Only admins and HSCP officers can record teacher attendance")
+        if current_role not in ["admin", "hscp_officer", "attendance_officer"]:
+            raise HTTPException(status_code=403, detail="Only admins, HSCP officers, and attendance officers can record teacher attendance")
         
         # Extract access token from Authorization header for RLS
         access_token = None
@@ -1158,7 +1158,7 @@ async def save_teacher_attendance(
         
         teachers_data = teachers_response.data
         
-        # If HSCP officer, validate all teachers are HSCP teachers
+        # If HSCP officer, validate all teachers are HSCP teachers (attendance officer can record for any teacher)
         if current_role == "hscp_officer":
             for teacher in teachers_data:
                 teacher_grade = teacher.get("grade", "")
@@ -1239,14 +1239,14 @@ async def get_teacher_attendance(
     try:
         log_info(f"get_teacher_attendance called for date: {date}")
         
-        # Check if user is admin or HSCP officer
+        # Check if user is admin, HSCP officer, or attendance officer
         current_role = profile.get("role")
-        if current_role not in ["admin", "hscp_officer"]:
-            raise HTTPException(status_code=403, detail="Only admins and HSCP officers can view teacher attendance")
+        if current_role not in ["admin", "hscp_officer", "attendance_officer"]:
+            raise HTTPException(status_code=403, detail="Only admins, HSCP officers, and attendance officers can view teacher attendance")
         
         admin_supabase = get_supabase_admin_client()
         
-        # Get teacher IDs that the user can view
+        # Get teacher IDs that the user can view (HSCP officer: HSCP only; admin/attendance_officer: all)
         if current_role == "hscp_officer":
             # For HSCP officers, only get HSCP teachers
             teachers_response = admin_supabase.table("profiles").select("id").eq(
@@ -2159,7 +2159,8 @@ async def bulk_add_students(
                 )
         
         # Insert students
-        insert_response = admin_supabase.table("students").insert(records).select("id,full_name,student_identifier").execute()
+        # Note: .select() cannot be chained after .insert() in Supabase Python client (SyncQueryRequestBuilder has no select attr)
+        insert_response = admin_supabase.table("students").insert(records).execute()
         
         if insert_response is None:
             raise HTTPException(status_code=500, detail="Supabase returned None for students insert")
@@ -2528,9 +2529,9 @@ async def create_staff(
     try:
         current_role = profile.get("role")
         
-        # Check if current user is admin, principal, or HSCP officer
-        if current_role not in ["admin", "principal", "hscp_officer"]:
-            raise HTTPException(status_code=403, detail="Only admins, principals, and HSCP officers can create staff")
+        # Check if current user is admin, principal, HSCP officer, or attendance officer
+        if current_role not in ["admin", "principal", "hscp_officer", "attendance_officer"]:
+            raise HTTPException(status_code=403, detail="Only admins, principals, HSCP officers, and attendance officers can create staff")
         
         log_info(f"{current_role} {profile.get('email')} creating staff: {payload.full_name}, role: {payload.role}")
         log_info(f"Payload email: {payload.email}, Email type: {type(payload.email)}")
@@ -2836,9 +2837,9 @@ async def get_temporary_password(
     try:
         current_role = profile.get("role")
         
-        # Check if current user is admin or HSCP officer
-        if current_role not in ["admin", "hscp_officer"]:
-            raise HTTPException(status_code=403, detail="Only admins and HSCP officers can view temporary passwords")
+        # Check if current user is admin, HSCP officer, or attendance officer
+        if current_role not in ["admin", "hscp_officer", "attendance_officer"]:
+            raise HTTPException(status_code=403, detail="Only admins, HSCP officers, and attendance officers can view temporary passwords")
         
         admin_supabase = get_supabase_admin_client()
         
@@ -2859,13 +2860,16 @@ async def get_temporary_password(
         
         target_user = profile_response.data
         
-        # If HSCP officer, verify this is an HSCP teacher
+        # If HSCP officer, verify this is an HSCP teacher; attendance officer can view any teacher's password
         if current_role == "hscp_officer":
             if target_user.get("role") != "teacher":
                 raise HTTPException(status_code=403, detail="HSCP Officers can only view passwords for teachers")
             grade = target_user.get("grade", "").upper() if target_user.get("grade") else ""
             if not grade.startswith("HSCP"):
                 raise HTTPException(status_code=403, detail="HSCP Officers can only view passwords for HSCP teachers")
+        elif current_role == "attendance_officer":
+            if target_user.get("role") != "teacher":
+                raise HTTPException(status_code=403, detail="Attendance officers can only view passwords for teachers")
         
         # Check if user has requires_password_reset and has an email
         requires_reset = target_user.get("requires_password_reset", False)
@@ -3389,8 +3393,8 @@ async def update_user_profile(
         current_role = profile.get("role")
         
         # Check permissions
-        if current_role not in ["admin", "hscp_officer"]:
-            raise HTTPException(status_code=403, detail="Only admins and HSCP officers can update profiles")
+        if current_role not in ["admin", "hscp_officer", "attendance_officer"]:
+            raise HTTPException(status_code=403, detail="Only admins, HSCP officers, and attendance officers can update profiles")
         
         admin_supabase = get_supabase_admin_client()
         
@@ -3410,6 +3414,11 @@ async def update_user_profile(
             raise HTTPException(status_code=404, detail="User not found")
         
         target_user = target_response.data
+        
+        # If attendance officer, verify target is a teacher
+        if current_role == "attendance_officer":
+            if target_user.get("role") != "teacher":
+                raise HTTPException(status_code=403, detail="Attendance officers can only update teachers")
         
         # If HSCP officer, verify target is HSCP teacher
         if current_role == "hscp_officer":
@@ -3775,9 +3784,9 @@ async def get_all_users(
     try:
         current_role = profile.get("role")
         
-        # Check if current user is admin, principal, or HSCP officer
-        if current_role not in ["admin", "principal", "hscp_officer"]:
-            raise HTTPException(status_code=403, detail="Only admins, principals, and HSCP officers can view users")
+        # Check if current user is admin, principal, HSCP officer, or attendance officer
+        if current_role not in ["admin", "principal", "hscp_officer", "attendance_officer"]:
+            raise HTTPException(status_code=403, detail="Only admins, principals, HSCP officers, and attendance officers can view users")
         
         log_info(f"{current_role} {profile.get('email')} fetching users")
         
@@ -3796,12 +3805,12 @@ async def get_all_users(
         
         users_data = response.data if hasattr(response, 'data') else []
         
-        # If HSCP officer, filter to only HSCP teachers
+        # If HSCP officer, filter to only HSCP teachers; attendance_officer gets all (filtered on frontend)
         if current_role == "hscp_officer":
             users_data = [
                 user for user in users_data
-                if user.get("role") == "teacher" and 
-                   user.get("grade") and 
+                if user.get("role") == "teacher" and
+                   user.get("grade") and
                    str(user.get("grade", "")).upper().startswith("HSCP")
             ]
         

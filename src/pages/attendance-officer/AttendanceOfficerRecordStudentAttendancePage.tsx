@@ -1,13 +1,13 @@
 import { useRequireRole } from '@/lib/auth-client'
 import { RecordStudentAttendancePage } from '@/features/attendance/RecordStudentAttendancePage'
 
-export default function HSCPOfficerRecordStudentAttendancePage() {
-  useRequireRole('hscp_officer')
+export default function AttendanceOfficerRecordStudentAttendancePage() {
+  useRequireRole('attendance_officer')
 
   return (
     <RecordStudentAttendancePage
-      hscpOnly
-      basePath="/hscp-officer/record-student-attendance"
+      hscpOnly={false}
+      basePath="/attendance-officer/record-student-attendance"
     />
   )
 }

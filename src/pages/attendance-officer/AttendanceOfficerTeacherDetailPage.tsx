@@ -28,8 +28,8 @@ type Teacher = {
   created_at: string
 }
 
-export default function HSCPOfficerTeacherDetailPage() {
-  useRequireRole('hscp_officer')
+export default function AttendanceOfficerTeacherDetailPage() {
+  useRequireRole('attendance_officer')
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [teacher, setTeacher] = useState<Teacher | null>(null)
@@ -61,15 +61,13 @@ export default function HSCPOfficerTeacherDetailPage() {
         setLoading(true)
         setError(null)
 
-        // Get session for authentication
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) {
           navigate('/auth/login')
           return
         }
 
-        // Fetch user from backend API
-        const response = await fetch(`/api/admin/users`, {
+        const response = await fetch('/api/admin/users', {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${session.access_token}`,
@@ -92,16 +90,13 @@ export default function HSCPOfficerTeacherDetailPage() {
           return
         }
 
-        // Verify this is an HSCP teacher
-        const grade = foundTeacher.grade?.toUpperCase() || ''
-        if (foundTeacher.role !== 'teacher' || !grade.startsWith('HSCP')) {
-          setError('This teacher is not assigned to an HSCP section')
+        if (foundTeacher.role !== 'teacher') {
+          setError('This user is not a teacher')
           setLoading(false)
           return
         }
 
         setTeacher(foundTeacher)
-        // Initialize edit form data
         setEditFormData({
           full_name: foundTeacher.full_name || '',
           email: foundTeacher.email || '',
@@ -150,7 +145,6 @@ export default function HSCPOfficerTeacherDetailPage() {
         return
       }
 
-      // Call API to generate/get temporary password
       const response = await fetch(`/api/admin/users/${id}/temporary-password`, {
         method: 'POST',
         headers: {
@@ -166,7 +160,6 @@ export default function HSCPOfficerTeacherDetailPage() {
         return
       }
 
-      // Show password dialog
       if (data.temporary_password) {
         setPasswordData({
           fullName: data.full_name || teacher.full_name || '',
@@ -177,8 +170,8 @@ export default function HSCPOfficerTeacherDetailPage() {
       } else {
         toast.error('No temporary password available.')
       }
-    } catch (e: any) {
-      toast.error(e.message || 'An unexpected error occurred.')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'An unexpected error occurred.')
     }
   }
 
@@ -194,7 +187,7 @@ export default function HSCPOfficerTeacherDetailPage() {
         return
       }
 
-      const payload: any = {}
+      const payload: Record<string, string | null> = {}
       if (editFormData.full_name !== (teacher.full_name || '')) {
         payload.full_name = editFormData.full_name.trim()
       }
@@ -228,7 +221,6 @@ export default function HSCPOfficerTeacherDetailPage() {
         return
       }
 
-      // Show password dialog if temporary password is provided (email updated from placeholder)
       if (data.temporary_password && teacher) {
         setPasswordData({
           fullName: data.full_name || teacher.full_name || '',
@@ -236,20 +228,13 @@ export default function HSCPOfficerTeacherDetailPage() {
           password: data.temporary_password,
         })
         setShowPasswordDialog(true)
-        // Don't reload yet - wait for dialog to close
       } else {
-        // No password dialog needed (email updated from valid to valid), just show success toast with longer duration
-        toast.success('Profile updated successfully!', {
-          duration: 2000, // 2 seconds
-        })
+        toast.success('Profile updated successfully!', { duration: 2000 })
         setIsEditing(false)
-        // Delay reload slightly to ensure toast is visible
-        setTimeout(() => {
-          window.location.reload()
-        }, 100)
+        setTimeout(() => window.location.reload(), 100)
       }
-    } catch (e: any) {
-      toast.error(e.message || 'An unexpected error occurred.')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'An unexpected error occurred.')
       setIsSaving(false)
     }
   }
@@ -272,7 +257,7 @@ export default function HSCPOfficerTeacherDetailPage() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center space-y-4">
           <p className="text-destructive">{error || 'Teacher not found'}</p>
-          <Button onClick={() => navigate('/hscp-officer/users')}>Back to Staff Directory</Button>
+          <Button onClick={() => navigate('/attendance-officer/users')}>Back to Staff Directory</Button>
         </div>
       </div>
     )
@@ -280,12 +265,11 @@ export default function HSCPOfficerTeacherDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <Button
             variant="ghost"
-            onClick={() => navigate('/hscp-officer/users')}
+            onClick={() => navigate('/attendance-officer/users')}
             className="mb-4"
           >
             ← Back to Staff Directory
@@ -296,7 +280,6 @@ export default function HSCPOfficerTeacherDetailPage() {
         </div>
       </div>
 
-      {/* Teacher Card Header */}
       <Card>
         <CardContent className="p-6">
           <div className="flex items-start gap-4">
@@ -324,8 +307,8 @@ export default function HSCPOfficerTeacherDetailPage() {
                   </span>
                 )}
                 <span className={`px-3 py-1 text-sm rounded-full ${
-                  teacher.is_active 
-                    ? 'bg-green-100 text-green-700' 
+                  teacher.is_active
+                    ? 'bg-green-100 text-green-700'
                     : 'bg-red-100 text-red-700'
                 }`}>
                   {teacher.is_active ? 'Active' : 'Inactive'}
@@ -336,15 +319,13 @@ export default function HSCPOfficerTeacherDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Edit Button */}
       <div className="flex justify-end gap-2">
         {!isEditing ? (
           <>
-            {/* Show button if requires_password_reset is true and email exists */}
             {teacher.requires_password_reset === true && teacher.email && !teacher.email.startsWith('noemail-') && (
-              <Button 
-                onClick={handleShowTemporaryPassword} 
-                variant="outline" 
+              <Button
+                onClick={handleShowTemporaryPassword}
+                variant="outline"
                 className="flex items-center gap-2"
               >
                 <Key className="w-4 h-4" />
@@ -370,9 +351,7 @@ export default function HSCPOfficerTeacherDetailPage() {
         )}
       </div>
 
-      {/* Details */}
       <div className="space-y-6">
-        {/* Contact Information */}
         <Card>
           <CardHeader>
             <CardTitle>Contact Information</CardTitle>
@@ -407,53 +386,44 @@ export default function HSCPOfficerTeacherDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Teaching Assignment */}
         {(teacher.grade || teacher.section || teacher.room_number) && (
           <Card>
             <CardHeader>
               <CardTitle>Teaching Assignment</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Grade / Section / Room Number</label>
-                <p className="text-base">
-                  {[teacher.grade, teacher.section, teacher.room_number].filter(Boolean).join(' / ') || '-'}
-                </p>
-              </div>
+            <CardContent>
+              <p className="text-base">
+                {[teacher.grade, teacher.section, teacher.room_number].filter(Boolean).join(' / ') || '-'}
+              </p>
             </CardContent>
           </Card>
         )}
 
-        {/* System Information */}
         <Card>
           <CardHeader>
             <CardTitle>System Information</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Created</label>
-              <p className="text-base">
-                {new Date(teacher.created_at).toLocaleString('en-US', {
-                  year: 'numeric',
-                  month: 'numeric',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit',
-                })}
-              </p>
-            </div>
+          <CardContent>
+            <p className="text-base">
+              {new Date(teacher.created_at).toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })}
+            </p>
           </CardContent>
         </Card>
       </div>
-      
+
       {passwordData && (
         <TemporaryPasswordDialog
           open={showPasswordDialog}
           onOpenChange={(open) => {
             setShowPasswordDialog(open)
             if (!open) {
-              // Dialog closed, refresh data
               setIsEditing(false)
               window.location.reload()
             }
@@ -467,4 +437,3 @@ export default function HSCPOfficerTeacherDetailPage() {
     </div>
   )
 }
-

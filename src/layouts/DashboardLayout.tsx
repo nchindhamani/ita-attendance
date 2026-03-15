@@ -43,9 +43,11 @@ export default function DashboardLayout() {
         ]
       case "attendance_officer":
         return [
-          { href: "/attendance-officer", label: "Overview" },
-          { href: "/attendance-officer/attendance", label: "Manage Attendance" },
-          { href: "/attendance-officer/students", label: "Student Profiles" },
+          { href: "/attendance-officer/record-teacher-attendance", label: "Record Teacher Attendance" },
+          { href: "/attendance-officer/record-student-attendance", label: "Record Student Attendance" },
+          { href: "/attendance-officer/teacher-attendance", label: "View Attendance" },
+          { href: "/attendance-officer/users", label: "Teacher Management" },
+          { href: "/attendance-officer/student-attendance", label: "Student Lookup" },
           { href: "/profile", label: "Profile" },
         ]
       case "hscp_officer":
