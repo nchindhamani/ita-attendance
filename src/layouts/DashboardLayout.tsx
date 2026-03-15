@@ -25,7 +25,7 @@ export default function DashboardLayout() {
       case "admin":
         return [
           { href: "/admin", label: "Admin Overview" },
-          { href: "/admin/users", label: "User Management" },
+          { href: "/admin/users", label: "Staff Management" },
           { href: "/admin/attendance", label: "Attendance" },
           { href: "/admin/student-attendance", label: "Student Lookup" },
           { href: "/admin/staff-attendance", label: "Record Volunteer/Staff Attendance" },

@@ -48,7 +48,7 @@ export default function AdminUsersPage() {
   useRequireRole('admin')
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const activeTab = searchParams.get('tab') || 'approval'
+  const activeTab = searchParams.get('tab') || 'directory'
   
   const [approvalQueue, setApprovalQueue] = useState<User[]>([])
   const [staffDirectory, setStaffDirectory] = useState<User[]>([])
@@ -226,7 +226,7 @@ export default function AdminUsersPage() {
     <div className="space-y-12">
       <div className="space-y-3">
         <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">
-          User Management
+          Staff Management
         </h2>
         <p className="text-base text-muted-foreground">
           Review approvals, manage roles, and deactivate staff.
@@ -234,13 +234,6 @@ export default function AdminUsersPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant={activeTab === 'approval' ? 'default' : 'outline'}
-          asChild
-        >
-          <Link to="/admin/users?tab=approval">Approval Queue</Link>
-        </Button>
         <Button
           size="sm"
           variant={activeTab === 'directory' ? 'default' : 'outline'}
@@ -254,6 +247,13 @@ export default function AdminUsersPage() {
           asChild
         >
           <Link to="/admin/users?tab=create">Create Staff</Link>
+        </Button>
+        <Button
+          size="sm"
+          variant={activeTab === 'approval' ? 'default' : 'outline'}
+          asChild
+        >
+          <Link to="/admin/users?tab=approval">Approval Queue ({approvalQueue.length})</Link>
         </Button>
       </div>
 
