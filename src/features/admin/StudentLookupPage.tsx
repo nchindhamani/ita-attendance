@@ -80,26 +80,39 @@ export function StudentLookupPage({
       }
 
       try {
-        const { data: yearRows, error: yearError } = await supabase
+        const yearSet = new Set<string>()
+
+        // Years from student_attendance (student has at least one attendance record)
+        const { data: attendanceYearRows, error: attendanceYearError } = await supabase
           .from('student_attendance')
           .select('school_year')
           .eq('student_identifier', studentIdNum)
           .order('school_year', { ascending: false })
 
-        if (yearError) {
-          setErrorMessage(`Error fetching years: ${yearError.message}`)
-          setAvailableYears([])
-          return
+        if (!attendanceYearError && attendanceYearRows) {
+          attendanceYearRows.forEach((row) => {
+            if (row.school_year && !yearSet.has(row.school_year)) {
+              yearSet.add(row.school_year)
+            }
+          })
         }
 
-        const yearSet = new Set<string>()
-        const orderedYears: string[] = []
-        ;(yearRows ?? []).forEach((row) => {
-          if (row.school_year && !yearSet.has(row.school_year)) {
-            yearSet.add(row.school_year)
-            orderedYears.push(row.school_year)
-          }
-        })
+        // Years from students table (student exists for that year, even with no attendance)
+        const { data: studentYearRows, error: studentYearError } = await supabase
+          .from('students')
+          .select('school_year')
+          .eq('student_identifier', studentIdNum)
+          .order('school_year', { ascending: false })
+
+        if (!studentYearError && studentYearRows) {
+          studentYearRows.forEach((row) => {
+            if (row.school_year && !yearSet.has(row.school_year)) {
+              yearSet.add(row.school_year)
+            }
+          })
+        }
+
+        const orderedYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a))
         setAvailableYears(orderedYears)
         setErrorMessage(null)
       } catch (err) {
@@ -329,7 +342,7 @@ export function StudentLookupPage({
           ) : null}
           {studentIdInput && availableYears.length === 0 && !errorMessage ? (
             <p className="mt-3 text-sm text-destructive">
-              No attendance records found for student ID {studentIdInput}. Please verify the student ID.
+              No student found for this ID. Please verify the student ID.
             </p>
           ) : null}
         </CardContent>
