@@ -3,6 +3,7 @@ import { Users } from 'lucide-react'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { Sidebar } from '@/features/navigation/Sidebar'
 import { BottomNav } from '@/features/navigation/BottomNav'
+import { SignOutButton } from '@/features/auth/SignOutButton'
 import { useInactivityLogout } from '@/hooks/useInactivityLogout'
 
 export default function DashboardLayout() {
@@ -79,19 +80,25 @@ export default function DashboardLayout() {
       
       {/* Mobile Header - Only visible on mobile */}
       <header 
-        className="md:hidden sticky top-0 z-50 w-full text-white px-6 py-5 shadow-lg"
+        className="md:hidden sticky top-0 z-50 w-full text-white px-4 py-4 shadow-lg"
         style={{
           background: "linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)",
         }}
       >
-        <div className="flex items-center justify-center gap-3">
-          <div className="w-9 h-9 bg-[rgba(139,92,246,0.3)] rounded-[10px] flex items-center justify-center">
-            <Users className="w-5 h-5 text-white" />
-          </div>
-          <div className="text-center">
-            <Link to="/dashboard" className="text-lg font-heading font-bold text-white leading-tight hover:opacity-80 transition-opacity">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-center gap-3 min-w-0 flex-1">
+            <div className="w-9 h-9 bg-[rgba(139,92,246,0.3)] rounded-[10px] flex items-center justify-center flex-shrink-0">
+              <Users className="w-5 h-5 text-white" />
+            </div>
+            <Link to="/dashboard" className="text-lg font-heading font-bold text-white leading-tight hover:opacity-80 transition-opacity truncate">
               ITA Attendance Hub
             </Link>
+          </div>
+          <div className="flex-shrink-0">
+            <SignOutButton
+              variant="sidebar"
+              className="!w-auto !px-3 !py-2 !text-sm whitespace-nowrap"
+            />
           </div>
         </div>
       </header>

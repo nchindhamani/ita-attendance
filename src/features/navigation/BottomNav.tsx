@@ -16,7 +16,9 @@ import {
   PenSquare,
   HandHeart,
   UserPlus,
+  LogOut,
 } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -92,6 +94,7 @@ export function BottomNav({ navLinks }: BottomNavProps) {
   const pathname = location.pathname;
   const navigate = useNavigate();
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const mainLinks = navLinks.slice(0, 4);
   const moreLinks = navLinks.slice(4);
@@ -99,6 +102,14 @@ export function BottomNav({ navLinks }: BottomNavProps) {
   const handleMoreLinkClick = (href: string) => {
     navigate(href);
     setMoreMenuOpen(false);
+  };
+
+  const handleSignOut = () => {
+    setMoreMenuOpen(false);
+    setSigningOut(true);
+    createSupabaseBrowserClient().auth.signOut().then(() => {
+      navigate("/", { replace: true });
+    });
   };
 
   return (
@@ -192,6 +203,17 @@ export function BottomNav({ navLinks }: BottomNavProps) {
                 );
               })}
             </nav>
+            <div className="pt-3 mt-3 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={handleSignOut}
+                disabled={signingOut}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="text-sm font-medium">{signingOut ? "Signing out..." : "Sign out"}</span>
+              </button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

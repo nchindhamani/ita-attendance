@@ -52,7 +52,7 @@ export function Sidebar({ navLinks, profile }: SidebarProps) {
           </Link>
         </div>
 
-        {/* Navigation & User Info - Scrollable */}
+        {/* Navigation - Scrollable */}
         <div className="flex-1 overflow-y-auto min-h-0">
           <nav className="px-4 pt-8 space-y-1">
             {navLinks.map((link) => {
@@ -82,18 +82,18 @@ export function Sidebar({ navLinks, profile }: SidebarProps) {
               );
             })}
           </nav>
+        </div>
 
-          {/* User Info & Sign Out - Scrolls with navigation */}
-          <div className="px-4 pb-8 pt-8 border-t border-white/10 mt-8">
-            <div className="px-4 py-3 mb-3 rounded-xl bg-white/5">
-              <div className="text-xs text-white/50 mb-1 uppercase tracking-wider">Signed in as</div>
-              <div className="text-sm font-medium text-white truncate">
-                {profile.full_name ?? profile.email}
-              </div>
+        {/* User Info & Sign Out - Fixed at bottom so always visible */}
+        <div className="flex-shrink-0 px-4 pb-8 pt-6 border-t border-white/10">
+          <div className="px-4 py-3 mb-3 rounded-xl bg-white/5">
+            <div className="text-xs text-white/50 mb-1 uppercase tracking-wider">Signed in as</div>
+            <div className="text-sm font-medium text-white truncate">
+              {profile.full_name ?? profile.email}
             </div>
-            <div className="px-4">
-              <SignOutButton variant="sidebar" />
-            </div>
+          </div>
+          <div className="px-4">
+            <SignOutButton variant="sidebar" />
           </div>
         </div>
       </div>
