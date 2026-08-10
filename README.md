@@ -17,7 +17,7 @@ This is not a demo CRUD app. It solves real operational needs for a multi-role s
 
 ---
 
-## Highlights for reviewers
+## Highlights
 
 ### Product & domain complexity
 - **6 roles** with distinct UX and permissions: Admin, Principal, Attendance Officer, HSCP Officer, Teacher, Volunteer
@@ -73,8 +73,6 @@ This is not a demo CRUD app. It solves real operational needs for a multi-role s
                  └─────────────────┘
 ```
 
-**Local defaults:** frontend `http://localhost:3003` (proxies `/api` → API on `8002`).
-
 ---
 
 ## Tech stack
@@ -82,23 +80,3 @@ This is not a demo CRUD app. It solves real operational needs for a multi-role s
 - **Frontend:** React 18, Vite, React Router, TypeScript, Tailwind CSS, Radix/Shadcn-style UI
 - **Backend:** FastAPI (`api/index.py`)
 - **Platform:** Supabase (PostgreSQL, Auth, Storage), Vercel
-
----
-
-## Local setup (optional)
-
-```bash
-npm install
-# Create .env.local with VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY,
-# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET
-npm run dev:all
-```
-
-Apply SQL under `supabase/` (schema + migrations) in your Supabase project as needed.
-
----
-
-## Repository notes
-
-- Internal documentation under `/docs` is gitignored and not published with this repo.
-- Secrets live in `.env.local` / host env vars — never committed.
