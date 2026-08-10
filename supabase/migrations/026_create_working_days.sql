@@ -5,6 +5,9 @@ create table if not exists working_days (
   school_year text not null,
   calendar_type text not null check (calendar_type in ('hscp', 'regular')),
   created_at timestamptz not null default now(),
+  created_by text default 'backend',
+  last_updated_by text default 'backend',
+  last_updated_at timestamptz default now(),
   constraint working_days_unique unique (work_date, school_year, calendar_type)
 );
 
@@ -22,3 +25,11 @@ create policy "Authenticated users can read working days"
   for select
   to authenticated
   using (true);
+
+
+-- Writes go through the API with the service role key (bypasses RLS).
+-- Optional: allow admins/HSCP officers to write directly from the client later.
+
+COMMENT ON TABLE working_days IS 'Allowlist of class/working days per school year and calendar (hscp vs regular).';
+COMMENT ON COLUMN working_days.calendar_type IS 'hscp = HSCP grades; regular = all other grades';
+

@@ -530,6 +530,35 @@ def capitalize_name(name: str) -> str:
     
     return " ".join(result)
 
+def audit_actor_from_profile(profile: Optional[dict]) -> str:
+    """
+    Audit actor for sections / working_days.
+    API/frontend actions → profile UUID; SQL/seed defaults to 'backend' in DB.
+    """
+    if profile and profile.get("id"):
+        return str(profile.get("id"))
+    return "backend"
+
+
+def audit_fields_for_insert(profile: Optional[dict]) -> dict:
+    """created_by + last_updated_by + last_updated_at for new rows."""
+    actor = audit_actor_from_profile(profile)
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "created_by": actor,
+        "last_updated_by": actor,
+        "last_updated_at": now,
+    }
+
+
+def audit_fields_for_update(profile: Optional[dict]) -> dict:
+    """last_updated_by + last_updated_at for updates (created_* unchanged)."""
+    return {
+        "last_updated_by": audit_actor_from_profile(profile),
+        "last_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def get_current_school_year(now: Optional[datetime] = None) -> str:
     """
     ITA school year runs August–May (America/Los_Angeles).
@@ -3089,11 +3118,13 @@ async def bulk_upload_working_days(
                 "school_year", school_year
             ).eq("calendar_type", calendar_type).execute()
 
+            audit = audit_fields_for_insert(profile)
             rows = [
                 {
                     "work_date": d,
                     "school_year": school_year,
                     "calendar_type": calendar_type,
+                    **audit,
                 }
                 for d in sorted(date_set)
             ]
@@ -3194,13 +3225,22 @@ async def list_classrooms(
         )
 
 
-def _insert_classroom_rows(admin_supabase, school_year: str, grade: str, section_names: list, room_number: Optional[str]):
+def _insert_classroom_rows(
+    admin_supabase,
+    school_year: str,
+    grade: str,
+    section_names: list,
+    room_number: Optional[str],
+    profile: Optional[dict] = None,
+):
+    audit = audit_fields_for_insert(profile)
     rows = [
         {
             "grade": grade,
             "section": section_name,
             "room_number": room_number if room_number else None,
             "school_year": school_year,
+            **audit,
         }
         for section_name in section_names
     ]
@@ -3259,7 +3299,7 @@ async def create_classroom(
                     },
                 )
             count = _insert_classroom_rows(
-                admin_supabase, school_year, grade, HSCP_CLASSROOM_SECTIONS, room_number
+                admin_supabase, school_year, grade, HSCP_CLASSROOM_SECTIONS, room_number, profile
             )
             return {
                 "success": f"Created {count} {grade} classrooms (Conversation, Reading, Writing) for {school_year}.",
@@ -3293,7 +3333,14 @@ async def create_classroom(
                 },
             )
 
-        _insert_classroom_rows(admin_supabase, school_year, grade, [section_name], room_number)
+        _insert_classroom_rows(
+            admin_supabase,
+            school_year,
+            grade,
+            [section_name],
+            room_number,
+            profile,
+        )
         return {
             "success": f"Created classroom Grade {grade} — {section_name} for {school_year}.",
             "addedCount": 1,
@@ -3368,7 +3415,7 @@ async def bulk_create_classrooms(
                     continue
                 try:
                     added += _insert_classroom_rows(
-                        admin_supabase, school_year, grade, HSCP_CLASSROOM_SECTIONS, room_number
+                        admin_supabase, school_year, grade, HSCP_CLASSROOM_SECTIONS, room_number, profile
                     )
                 except Exception as e:
                     errors.append(f"row {idx}: {str(e)}")
@@ -3397,7 +3444,7 @@ async def bulk_create_classrooms(
 
             try:
                 added += _insert_classroom_rows(
-                    admin_supabase, school_year, grade, [section_name], room_number
+                    admin_supabase, school_year, grade, [section_name], room_number, profile
                 )
             except Exception as e:
                 errors.append(f"row {idx}: {str(e)}")
@@ -3461,12 +3508,13 @@ async def update_classroom_room(
 
         room_number = (payload.roomNumber or "").strip() or None
         school_year = section.get("school_year") or get_current_school_year()
+        room_update = {"room_number": room_number, **audit_fields_for_update(profile)}
 
         # HSCP: keep Conversation/Reading/Writing room numbers in sync for the grade
         if is_hscp_grade(grade):
             update_resp = (
                 admin_supabase.table("sections")
-                .update({"room_number": room_number})
+                .update(room_update)
                 .eq("school_year", school_year)
                 .eq("grade", grade)
                 .execute()
@@ -3477,7 +3525,7 @@ async def update_classroom_room(
 
         update_resp = (
             admin_supabase.table("sections")
-            .update({"room_number": room_number})
+            .update(room_update)
             .eq("id", section_id)
             .execute()
         )
@@ -4348,7 +4396,8 @@ async def create_staff(
                     "grade": grade,
                     "section": section,
                     "room_number": room_number,
-                    "school_year": current_school_year
+                    "school_year": current_school_year,
+                    **audit_fields_for_insert(profile),
                 }).execute()
                 
                 if section_insert_response and hasattr(section_insert_response, 'data') and section_insert_response.data:
@@ -4366,7 +4415,10 @@ async def create_staff(
                 
                 # For HSCP grades, update all other sections of the same grade to have the same room number
                 if is_hscp_grade(grade):
-                    admin_supabase.table("sections").update({"room_number": room_number}).eq("grade", grade).eq("school_year", current_school_year).neq("id", section_id).execute()
+                    admin_supabase.table("sections").update({
+                        "room_number": room_number,
+                        **audit_fields_for_update(profile),
+                    }).eq("grade", grade).eq("school_year", current_school_year).neq("id", section_id).execute()
                     log_info(f"HSCP grade {grade}: Updated all sections to share room number {room_number}")
         
         # Create user in Supabase Auth using Admin API
@@ -4876,6 +4928,7 @@ async def approve_user(
                     "section": section,
                     "room_number": room_number,
                     "school_year": current_school_year,
+                    **audit_fields_for_insert(profile),
                 }).execute()
                 
                 if insert_section_response is None:

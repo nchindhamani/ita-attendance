@@ -22,7 +22,11 @@ create table if not exists sections (
   section text not null,
   room_number text,
   school_year text not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Audit: API actors store profile UUID; SQL/seed omit → 'backend'
+  created_by text default 'backend',
+  last_updated_by text default 'backend',
+  last_updated_at timestamptz default now()
 );
 
 create table if not exists teacher_sections (

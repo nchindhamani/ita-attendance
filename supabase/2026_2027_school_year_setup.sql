@@ -41,8 +41,25 @@ CREATE TABLE IF NOT EXISTS working_days (
   school_year text NOT NULL,
   calendar_type text NOT NULL CHECK (calendar_type IN ('hscp', 'regular')),
   created_at timestamptz NOT NULL DEFAULT now(),
+  created_by text DEFAULT 'backend',
+  last_updated_by text DEFAULT 'backend',
+  last_updated_at timestamptz DEFAULT now(),
   CONSTRAINT working_days_unique UNIQUE (work_date, school_year, calendar_type)
 );
+
+ALTER TABLE working_days
+  ADD COLUMN IF NOT EXISTS created_by text DEFAULT 'backend';
+ALTER TABLE working_days
+  ADD COLUMN IF NOT EXISTS last_updated_by text DEFAULT 'backend';
+ALTER TABLE working_days
+  ADD COLUMN IF NOT EXISTS last_updated_at timestamptz DEFAULT now();
+
+ALTER TABLE sections
+  ADD COLUMN IF NOT EXISTS created_by text DEFAULT 'backend';
+ALTER TABLE sections
+  ADD COLUMN IF NOT EXISTS last_updated_by text DEFAULT 'backend';
+ALTER TABLE sections
+  ADD COLUMN IF NOT EXISTS last_updated_at timestamptz DEFAULT now();
 
 
 CREATE INDEX IF NOT EXISTS working_days_school_year_type_idx
