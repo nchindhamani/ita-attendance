@@ -18,6 +18,7 @@ type Teacher = {
   role: Role
   grade: string | null
   section: string | null
+  school_year: string | null
   mobile: string | null
   is_active: boolean
   is_approved: boolean
@@ -188,6 +189,16 @@ export default function AttendanceOfficerUsersPage() {
                           {teacher.grade && teacher.section && (
                             <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700">
                               {teacher.grade}/{teacher.section}
+                            </span>
+                          )}
+                          {teacher.school_year && (
+                            <span className="px-2 py-1 text-xs rounded-full bg-indigo-100 text-indigo-700">
+                              {teacher.school_year}
+                            </span>
+                          )}
+                          {!teacher.school_year && teacher.is_approved && (
+                            <span className="px-2 py-1 text-xs rounded-full bg-amber-100 text-amber-800">
+                              Not assigned this year
                             </span>
                           )}
                           <span className={`px-2 py-1 text-xs rounded-full ${

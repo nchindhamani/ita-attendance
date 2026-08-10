@@ -5,6 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
 import { getCurrentSchoolYear } from '@/lib/school-year'
 import { useWorkingDays } from '@/lib/use-working-days'
+import { formatIsoAsMdY } from '@/lib/working-days'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -177,6 +178,25 @@ export default function ViewAttendancePage({
 
   const today = formatPacificDate(new Date())
   const isAllGrades = selectedGrade === ALL_GRADES
+  const isWorkingDay = workingDays.includes(selectedDate)
+  const isFutureDate = selectedDate > today
+  const calendarLabel = hscpOnly
+    ? 'HSCP'
+    : !isAllGrades && selectedGrade.toUpperCase().startsWith('HSCP')
+      ? 'HSCP'
+      : !isAllGrades
+        ? 'Regular'
+        : null
+  const dateLockMessage =
+    workingDays.length === 0
+      ? calendarLabel
+        ? `No working days uploaded for the ${calendarLabel} calendar (${schoolYear}). Upload them under Working Days first.`
+        : `No working days uploaded for school year ${schoolYear}. Upload them under Working Days first.`
+      : !isWorkingDay
+        ? 'Selected date is not a working day. Choose a listed class day from your upload.'
+        : isFutureDate
+          ? `This is a future class day (next: ${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
+          : null
   const showTeachers = viewMode === 'all' || viewMode === 'teachers'
   const showStudents = viewMode === 'all' || viewMode === 'students'
 
@@ -431,7 +451,12 @@ export default function ViewAttendancePage({
         setSchoolYear(currentSchoolYear)
         cachedSchoolYearRef.current = currentSchoolYear
 
-        const response = await fetch('/api/admin/users', {
+        // Year-scoped teachers (teacher_sections → sections for current school year)
+        const qs = new URLSearchParams({
+          schoolYear: currentSchoolYear,
+          hscpOnly: hscpOnly ? 'true' : 'false',
+        })
+        const response = await fetch(`/api/teachers?${qs.toString()}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -445,24 +470,15 @@ export default function ViewAttendancePage({
         }
 
         const data = await response.json()
-        const allUsers = data.users || []
+        const yearTeachers = data.teachers || []
 
-        const filteredTeachers = allUsers
-          .filter((user: any) => {
-            if (user.role !== 'teacher' || !user.is_approved) return false
-            if (hscpOnly) {
-              const grade = user.grade?.toUpperCase() || ''
-              return grade.startsWith('HSCP')
-            }
-            return true
-          })
-          .map((user: any) => ({
-            id: user.id,
-            full_name: user.full_name || '',
-            email: user.email,
-            grade: user.grade || null,
-            section: user.section || null,
-          }))
+        const filteredTeachers = yearTeachers.map((user: any) => ({
+          id: user.id,
+          full_name: user.full_name || '',
+          email: user.email,
+          grade: user.grade || null,
+          section: user.section || null,
+        }))
 
         setTeachers(filteredTeachers)
         teachersLoadedRef.current = true
@@ -1208,7 +1224,7 @@ export default function ViewAttendancePage({
         <CardHeader className="px-4 pt-3 pb-1">
           <CardTitle className="text-lg mb-0 leading-none">Pick a date</CardTitle>
         </CardHeader>
-        <CardContent className="px-4 pb-4">
+        <CardContent className="px-4 pb-4 space-y-1.5">
           <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex-1 sm:max-w-[180px]">
               <DateInput
@@ -1228,6 +1244,11 @@ export default function ViewAttendancePage({
               Download CSV
             </Button>
           </div>
+          {dateLockMessage ? (
+            <p className="text-sm text-amber-700 leading-snug whitespace-nowrap overflow-x-auto">
+              {dateLockMessage}
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 

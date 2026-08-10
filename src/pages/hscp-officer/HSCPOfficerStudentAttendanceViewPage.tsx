@@ -5,6 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
 import { getCurrentSchoolYear } from '@/lib/school-year'
 import { useWorkingDays } from '@/lib/use-working-days'
+import { formatIsoAsMdY } from '@/lib/working-days'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -81,6 +82,17 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
     dateParam,
     onDateResolved: (iso) => setSelectedDate(iso),
   })
+
+  const isWorkingDay = workingDays.includes(selectedDate)
+  const isFutureDate = selectedDate > today
+  const dateLockMessage =
+    workingDays.length === 0
+      ? `No working days uploaded for the HSCP calendar (${schoolYear}). Upload them under Working Days first.`
+      : !isWorkingDay
+        ? 'Selected date is not a working day. Choose a listed class day from your upload.'
+        : isFutureDate
+          ? `This is a future class day (next: ${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
+          : null
 
   // Fetch available HSCP grades on mount
   useEffect(() => {
@@ -579,7 +591,7 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
         <CardHeader className="px-4 pt-3 pb-1">
           <CardTitle className="text-lg mb-0 leading-none">Pick a date</CardTitle>
         </CardHeader>
-        <CardContent className="px-4 pb-4">
+        <CardContent className="px-4 pb-4 space-y-1.5">
           <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex-1 sm:max-w-[180px]">
               <DateInput
@@ -618,6 +630,11 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
               )}
             </div>
           </div>
+          {dateLockMessage ? (
+            <p className="text-sm text-amber-700 leading-snug whitespace-nowrap overflow-x-auto">
+              {dateLockMessage}
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 

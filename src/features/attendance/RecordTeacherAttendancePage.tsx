@@ -263,7 +263,11 @@ export function RecordTeacherAttendancePage({
         setSchoolYear(currentSchoolYear)
         cachedSchoolYearRef.current = currentSchoolYear
 
-        const response = await fetch('/api/admin/users', {
+        const qs = new URLSearchParams({
+          schoolYear: currentSchoolYear,
+          hscpOnly: hscpOnly ? 'true' : 'false',
+        })
+        const response = await fetch(`/api/teachers?${qs.toString()}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -277,24 +281,15 @@ export function RecordTeacherAttendancePage({
         }
 
         const data = await response.json()
-        const allUsers = data.users || []
+        const yearTeachers = data.teachers || []
 
-        const filteredTeachers = allUsers
-          .filter((user: any) => {
-            if (user.role !== 'teacher' || !user.is_approved) return false
-            if (hscpOnly) {
-              const grade = user.grade?.toUpperCase() || ''
-              return grade.startsWith('HSCP')
-            }
-            return true
-          })
-          .map((user: any) => ({
-            id: user.id,
-            full_name: user.full_name || '',
-            email: user.email,
-            grade: user.grade || null,
-            section: user.section || null,
-          }))
+        const filteredTeachers = yearTeachers.map((user: any) => ({
+          id: user.id,
+          full_name: user.full_name || '',
+          email: user.email,
+          grade: user.grade || null,
+          section: user.section || null,
+        }))
 
         setTeachers(filteredTeachers)
         teachersLoadedRef.current = true

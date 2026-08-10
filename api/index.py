@@ -559,6 +559,156 @@ def audit_fields_for_update(profile: Optional[dict]) -> dict:
     }
 
 
+def fetch_teacher_assignments_for_year(
+    admin_supabase,
+    school_year: str,
+    hscp_only: bool = False,
+) -> dict:
+    """
+    Map teacher_id -> current-year classroom assignment from teacher_sections → sections.
+    One row per teacher (first section if multiple). Does not use profiles.grade.
+    """
+    try:
+        response = (
+            admin_supabase.table("teacher_sections")
+            .select("teacher_id,section_id,sections!inner(id,grade,section,room_number,school_year)")
+            .eq("sections.school_year", school_year)
+            .execute()
+        )
+    except Exception as e:
+        log_error(f"fetch_teacher_assignments_for_year failed: {e}")
+        return {}
+
+    rows = response.data if response and hasattr(response, "data") and response.data else []
+    by_teacher: dict = {}
+    for row in rows:
+        teacher_id = row.get("teacher_id")
+        section = row.get("sections") or {}
+        if isinstance(section, list):
+            section = section[0] if section else {}
+        grade = section.get("grade") or ""
+        if hscp_only and not is_hscp_grade(grade):
+            continue
+        if not teacher_id or teacher_id in by_teacher:
+            continue
+        by_teacher[teacher_id] = {
+            "section_id": row.get("section_id") or section.get("id"),
+            "grade": grade,
+            "section": section.get("section"),
+            "room_number": section.get("room_number"),
+            "school_year": section.get("school_year") or school_year,
+        }
+    return by_teacher
+
+
+def resolve_or_create_section(
+    admin_supabase,
+    grade: str,
+    section_name: str,
+    room_number: Optional[str],
+    school_year: str,
+    actor_profile: Optional[dict] = None,
+) -> Optional[str]:
+    """Find section for grade+section+school_year, or create it. Returns section id."""
+    existing = (
+        admin_supabase.table("sections")
+        .select("id,room_number")
+        .eq("grade", grade)
+        .eq("section", section_name)
+        .eq("school_year", school_year)
+        .maybe_single()
+        .execute()
+    )
+    if existing and hasattr(existing, "data") and existing.data:
+        return existing.data.get("id")
+
+    insert_payload = {
+        "grade": grade,
+        "section": section_name,
+        "room_number": room_number if room_number else None,
+        "school_year": school_year,
+        **audit_fields_for_insert(actor_profile),
+    }
+    insert_response = admin_supabase.table("sections").insert(insert_payload).execute()
+    if insert_response is None:
+        raise HTTPException(status_code=500, detail="Supabase returned None for section insert")
+    if hasattr(insert_response, "error") and insert_response.error:
+        raise HTTPException(status_code=500, detail=f"Failed to create section: {insert_response.error}")
+
+    data = insert_response.data
+    if isinstance(data, list) and data:
+        return data[0].get("id")
+    if isinstance(data, dict):
+        return data.get("id")
+    return None
+
+
+def fetch_teacher_ids_with_hscp_history(admin_supabase) -> set:
+    """Teacher IDs that have (or had) an HSCP classroom assignment in any school year."""
+    try:
+        response = (
+            admin_supabase.table("teacher_sections")
+            .select("teacher_id,sections!inner(grade)")
+            .execute()
+        )
+    except Exception as e:
+        log_error(f"fetch_teacher_ids_with_hscp_history failed: {e}")
+        return set()
+
+    rows = response.data if response and hasattr(response, "data") and response.data else []
+    ids = set()
+    for row in rows:
+        section = row.get("sections") or {}
+        if isinstance(section, list):
+            section = section[0] if section else {}
+        if is_hscp_grade(section.get("grade") or ""):
+            tid = row.get("teacher_id")
+            if tid:
+                ids.add(tid)
+    return ids
+
+
+def replace_teacher_year_assignment(
+    admin_supabase,
+    teacher_id: str,
+    grade: str,
+    section_name: str,
+    room_number: Optional[str],
+    school_year: str,
+    actor_profile: Optional[dict] = None,
+) -> str:
+    """
+    Assign teacher to grade/section for school_year only.
+    Removes this teacher's links to other sections in the same school year.
+    Prior years' teacher_sections rows are left untouched.
+    """
+    section_id = resolve_or_create_section(
+        admin_supabase, grade, section_name, room_number, school_year, actor_profile
+    )
+    if not section_id:
+        raise HTTPException(status_code=500, detail="Unable to resolve classroom for teacher assignment.")
+
+    # Existing assignments for this teacher in this school year only
+    existing = (
+        admin_supabase.table("teacher_sections")
+        .select("id,section_id,sections!inner(id,school_year)")
+        .eq("teacher_id", teacher_id)
+        .eq("sections.school_year", school_year)
+        .execute()
+    )
+    existing_rows = existing.data if existing and hasattr(existing, "data") and existing.data else []
+    for row in existing_rows:
+        row_section_id = row.get("section_id")
+        if row_section_id and row_section_id != section_id:
+            admin_supabase.table("teacher_sections").delete().eq("id", row["id"]).execute()
+
+    admin_supabase.table("teacher_sections").upsert(
+        {"teacher_id": teacher_id, "section_id": section_id},
+        on_conflict="teacher_id,section_id",
+    ).execute()
+    return section_id
+
+
 def get_current_school_year(now: Optional[datetime] = None) -> str:
     """
     ITA school year runs August–May (America/Los_Angeles).
@@ -1028,6 +1178,7 @@ class UserResponse(BaseModel):
     grade: Optional[str] = None
     section: Optional[str] = None
     room_number: Optional[str] = None
+    school_year: Optional[str] = None  # from current-year teacher_sections→sections
     mobile: Optional[str] = None
     is_active: bool
     is_approved: bool
@@ -1036,6 +1187,23 @@ class UserResponse(BaseModel):
 
 class UsersListResponse(BaseModel):
     users: list[UserResponse]
+
+class YearScopedTeacherResponse(BaseModel):
+    id: str
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    is_active: bool = True
+    is_approved: bool = True
+    grade: Optional[str] = None
+    section: Optional[str] = None
+    room_number: Optional[str] = None
+    schoolYear: str
+    sectionId: Optional[str] = None
+
+class YearScopedTeachersListResponse(BaseModel):
+    schoolYear: str
+    teachers: list[YearScopedTeacherResponse]
 
 class SectionResponse(BaseModel):
     id: str
@@ -1435,20 +1603,17 @@ async def get_teacher_attendance(
         
         admin_supabase = get_supabase_admin_client()
         
-        # Get teacher IDs that the user can view (HSCP officer: HSCP only; admin/attendance_officer: all)
+        # HSCP officer: only teachers assigned to current-year HSCP sections
         if current_role == "hscp_officer":
-            # For HSCP officers, only get HSCP teachers
-            teachers_response = admin_supabase.table("profiles").select("id").eq(
-                "role", "teacher"
-            ).like("grade", "HSCP-%").execute()
-            
-            if teachers_response is None or not hasattr(teachers_response, 'data'):
-                raise HTTPException(status_code=500, detail="Failed to fetch HSCP teachers")
-            
-            teacher_ids = [t["id"] for t in teachers_response.data]
+            assignments = fetch_teacher_assignments_for_year(
+                admin_supabase, get_current_school_year(), hscp_only=True
+            )
+            teacher_ids = list(assignments.keys())
+            if not teacher_ids:
+                return {"attendance": []}
         else:
-            # For admins, get all teachers (we'll filter by the attendance query)
-            teacher_ids = None  # Will fetch all
+            # For admins / attendance officers, fetch all attendance for the date
+            teacher_ids = None
         
         # Fetch attendance records
         query = admin_supabase.table("teacher_attendance").select(
@@ -5126,7 +5291,7 @@ async def update_user_profile(
         
         # Get target user profile
         target_response = admin_supabase.table("profiles").select(
-            "id,full_name,email,role,grade,section"
+            "id,full_name,email,role,grade,section,room_number"
         ).eq("id", profile_id).maybe_single().execute()
         
         if target_response is None:
@@ -5146,24 +5311,32 @@ async def update_user_profile(
             if target_user.get("role") != "teacher":
                 raise HTTPException(status_code=403, detail="Attendance officers can only update teachers")
         
-        # If HSCP officer, verify target is HSCP teacher
+        # If HSCP officer, only HSCP teachers (current or prior HSCP assignment / legacy profile)
         if current_role == "hscp_officer":
             if target_user.get("role") != "teacher":
                 raise HTTPException(status_code=403, detail="HSCP officers can only update HSCP teachers")
-            
-            # Check if teacher is assigned to HSCP section
-            teacher_grade = target_user.get("grade", "")
-            if not teacher_grade or not teacher_grade.upper().startswith("HSCP"):
-                raise HTTPException(status_code=403, detail="HSCP officers can only update teachers assigned to HSCP sections")
-            
-            # HSCP officers can only update name, mobile, email
-            if payload.grade or payload.section or payload.room_number:
-                raise HTTPException(status_code=403, detail="HSCP officers can only update name, mobile, and email")
+            hscp_history_ids = fetch_teacher_ids_with_hscp_history(admin_supabase)
+            year_hscp = fetch_teacher_assignments_for_year(
+                admin_supabase, get_current_school_year(), hscp_only=True
+            )
+            is_hscp_teacher = (
+                profile_id in hscp_history_ids
+                or profile_id in year_hscp
+                or is_hscp_grade(target_user.get("grade") or "")
+            )
+            if not is_hscp_teacher:
+                raise HTTPException(
+                    status_code=403,
+                    detail="HSCP officers can only update HSCP teachers.",
+                )
         
         log_info(f"{current_role} {profile.get('email')} updating profile {profile_id}")
         
         # Build update data
         update_data = {}
+        assignment_grade = None
+        assignment_section = None
+        assignment_room = None
         
         if payload.full_name:
             update_data["full_name"] = capitalize_name(payload.full_name.strip())
@@ -5175,12 +5348,15 @@ async def update_user_profile(
         if payload.grade is not None:
             normalized_grade = normalize_hscp_grade(payload.grade) if payload.grade else None
             update_data["grade"] = normalized_grade
+            assignment_grade = normalized_grade
         
         if payload.section is not None:
             update_data["section"] = capitalize_section(payload.section.strip()) if payload.section else None
+            assignment_section = update_data["section"]
         
         if payload.room_number is not None:
             update_data["room_number"] = payload.room_number.strip() if payload.room_number else None
+            assignment_room = update_data["room_number"]
         
         # Handle email update (requires updating auth.users)
         email_updated = False
@@ -5272,6 +5448,69 @@ async def update_user_profile(
                 error_message = getattr(error, 'message', str(error)) if error else str(error)
                 log_error(f"Supabase error updating profile: {error_message}")
                 raise HTTPException(status_code=500, detail=f"Failed to update profile: {error_message}")
+
+        # Year-scoped classroom assignment: only touch current school year.
+        # Prior years' teacher_sections rows are preserved.
+        # Admin: any grade. HSCP officer: HSCP grades only.
+        if (
+            target_user.get("role") == "teacher"
+            and current_role in ("admin", "hscp_officer")
+            and (assignment_grade is not None or assignment_section is not None)
+        ):
+            school_year = get_current_school_year()
+            # Prefer current-year assignment when merging partial updates
+            current_assignment = fetch_teacher_assignments_for_year(
+                admin_supabase, school_year, hscp_only=False
+            ).get(profile_id) or {}
+            final_grade = assignment_grade if assignment_grade is not None else (
+                current_assignment.get("grade") or target_user.get("grade") or ""
+            )
+            final_grade = normalize_hscp_grade(final_grade) if final_grade else ""
+            final_section = (
+                assignment_section
+                if assignment_section is not None
+                else capitalize_section(
+                    (
+                        current_assignment.get("section")
+                        or target_user.get("section")
+                        or ""
+                    ).strip()
+                )
+            )
+            final_room = (
+                assignment_room
+                if assignment_room is not None
+                else (
+                    current_assignment.get("room_number")
+                    if current_assignment.get("room_number") is not None
+                    else target_user.get("room_number")
+                )
+            )
+            if final_room is None and "room_number" in update_data:
+                final_room = update_data.get("room_number")
+
+            if not final_grade or not final_section:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Both grade and section are required to assign a teacher for the current school year."},
+                )
+            if current_role == "hscp_officer" and not is_hscp_grade(final_grade):
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "HSCP officers can only assign teachers to HSCP grades."},
+                )
+            replace_teacher_year_assignment(
+                admin_supabase,
+                profile_id,
+                final_grade,
+                final_section,
+                final_room,
+                school_year,
+                profile,
+            )
+            log_info(
+                f"Teacher {profile_id} assigned to {final_grade}/{final_section} for {school_year} by {current_role}"
+            )
         
         log_info(f"Profile {profile_id} updated successfully")
         message = "Profile updated successfully."
@@ -5498,14 +5737,90 @@ async def delete_student_attendance_by_section(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@api_router.get("/teachers", response_model=YearScopedTeachersListResponse)
+async def list_teachers_for_school_year(
+    schoolYear: Optional[str] = None,
+    hscpOnly: bool = False,
+    profile: dict = Depends(get_current_profile),
+):
+    """
+    Teachers assigned to classrooms for a school year (teacher_sections → sections).
+    Used by attendance record/view screens. Does not use profiles.grade for membership.
+    """
+    try:
+        current_role = profile.get("role")
+        if current_role not in ["admin", "principal", "hscp_officer", "attendance_officer"]:
+            raise HTTPException(status_code=403, detail="Not authorized to list teachers.")
+
+        school_year = (schoolYear or "").strip() or get_current_school_year()
+        hscp_only = bool(hscpOnly) or current_role == "hscp_officer"
+        admin_supabase = get_supabase_admin_client()
+
+        assignments = fetch_teacher_assignments_for_year(
+            admin_supabase, school_year, hscp_only=hscp_only
+        )
+        if not assignments:
+            return {"schoolYear": school_year, "teachers": []}
+
+        teacher_ids = list(assignments.keys())
+        profiles_resp = (
+            admin_supabase.table("profiles")
+            .select("id,full_name,email,mobile,is_active,is_approved,role")
+            .in_("id", teacher_ids)
+            .execute()
+        )
+        profiles_rows = (
+            profiles_resp.data
+            if profiles_resp and hasattr(profiles_resp, "data") and profiles_resp.data
+            else []
+        )
+        profile_by_id = {p.get("id"): p for p in profiles_rows if p.get("id")}
+
+        teachers = []
+        for tid, assignment in assignments.items():
+            p = profile_by_id.get(tid) or {}
+            if p.get("role") and p.get("role") != "teacher":
+                continue
+            if p and p.get("is_approved") is False:
+                continue
+            teachers.append(
+                YearScopedTeacherResponse(
+                    id=tid,
+                    full_name=p.get("full_name"),
+                    email=p.get("email"),
+                    mobile=p.get("mobile"),
+                    is_active=bool(p.get("is_active", True)),
+                    is_approved=bool(p.get("is_approved", True)),
+                    grade=assignment.get("grade"),
+                    section=assignment.get("section"),
+                    room_number=assignment.get("room_number"),
+                    schoolYear=assignment.get("school_year") or school_year,
+                    sectionId=assignment.get("section_id"),
+                )
+            )
+
+        teachers.sort(key=lambda t: (t.full_name or "").lower())
+        return {"schoolYear": school_year, "teachers": teachers}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error listing year-scoped teachers: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to list teachers: {str(e)}"},
+        )
+
+
 @api_router.get("/admin/users", response_model=UsersListResponse)
 async def get_all_users(
     profile: dict = Depends(get_current_profile),
     authorization: Optional[str] = Header(None)
 ):
     """
-    Get all users (admin/principal) or HSCP teachers (HSCP officer only)
-    This endpoint uses the admin client to bypass RLS and fetch profiles
+    Get all users (admin/principal) or current-year HSCP teachers (HSCP officer).
+    For teachers, grade/section/room/school_year come from current-year
+    teacher_sections → sections (not from profiles.grade for listing).
     """
     try:
         current_role = profile.get("role")
@@ -5517,6 +5832,16 @@ async def get_all_users(
         log_info(f"{current_role} {profile.get('email')} fetching users")
         
         admin_supabase = get_supabase_admin_client()
+        school_year = get_current_school_year()
+        year_assignments = fetch_teacher_assignments_for_year(admin_supabase, school_year, hscp_only=False)
+        hscp_year_ids = {
+            tid for tid, a in year_assignments.items() if is_hscp_grade(a.get("grade") or "")
+        }
+        hscp_history_ids = (
+            fetch_teacher_ids_with_hscp_history(admin_supabase)
+            if current_role == "hscp_officer"
+            else set()
+        )
         
         # Fetch all profiles (use * to avoid breakage if description column not yet added)
         response = admin_supabase.table("profiles").select("*").order("created_at", desc=True).execute()
@@ -5531,33 +5856,59 @@ async def get_all_users(
         
         users_data = response.data if hasattr(response, 'data') else []
         
-        # If HSCP officer, filter to only HSCP teachers; attendance_officer gets all (filtered on frontend)
+        # HSCP officer: current-year HSCP teachers + prior HSCP teachers (for reassignment)
         if current_role == "hscp_officer":
             users_data = [
                 user for user in users_data
-                if user.get("role") == "teacher" and
-                   user.get("grade") and
-                   str(user.get("grade", "")).upper().startswith("HSCP")
+                if user.get("role") == "teacher"
+                and (
+                    user.get("id") in hscp_year_ids
+                    or user.get("id") in hscp_history_ids
+                    or is_hscp_grade(user.get("grade") or "")
+                )
             ]
         
-        # Convert to response model
-        users = [
-            UserResponse(
-                id=user.get("id"),
-                full_name=user.get("full_name"),
-                email=user.get("email") or None,  # Allow None, don't default to empty string
-                role=user.get("role", "teacher"),
-                grade=user.get("grade"),
-                section=user.get("section"),
-                room_number=user.get("room_number"),
-                mobile=user.get("mobile"),
-                is_active=user.get("is_active", False),
-                is_approved=user.get("is_approved", False),
-                requires_password_reset=user.get("requires_password_reset"),
-                created_at=user.get("created_at", ""),
+        users = []
+        for user in users_data:
+            role = user.get("role", "teacher")
+            uid = user.get("id")
+            grade = user.get("grade")
+            section = user.get("section")
+            room_number = user.get("room_number")
+            user_school_year = None
+
+            if role == "teacher":
+                assignment = year_assignments.get(uid)
+                if assignment:
+                    grade = assignment.get("grade")
+                    section = assignment.get("section")
+                    room_number = assignment.get("room_number")
+                    user_school_year = assignment.get("school_year") or school_year
+                elif user.get("is_approved"):
+                    # Approved but not assigned this year — do not list last year's profile grade
+                    grade = None
+                    section = None
+                    room_number = None
+                    user_school_year = None
+                # else: pending approval — keep profile grade/section for the approval queue
+
+            users.append(
+                UserResponse(
+                    id=uid,
+                    full_name=user.get("full_name"),
+                    email=user.get("email") or None,
+                    role=role,
+                    grade=grade,
+                    section=section,
+                    room_number=room_number,
+                    school_year=user_school_year,
+                    mobile=user.get("mobile"),
+                    is_active=user.get("is_active", False),
+                    is_approved=user.get("is_approved", False),
+                    requires_password_reset=user.get("requires_password_reset"),
+                    created_at=user.get("created_at", ""),
+                )
             )
-            for user in users_data
-        ]
         
         log_info(f"Returning {len(users)} users")
         return {"users": users}

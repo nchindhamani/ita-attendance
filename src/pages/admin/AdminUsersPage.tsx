@@ -37,6 +37,7 @@ type User = {
   role: Role
   grade: string | null
   section: string | null
+  school_year: string | null
   description: string | null
   mobile: string | null
   is_active: boolean
@@ -275,6 +276,7 @@ export default function AdminUsersPage() {
                       <TableHead>Role</TableHead>
                       <TableHead>Grade</TableHead>
                       <TableHead>Section</TableHead>
+                      <TableHead>School Year</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -293,6 +295,7 @@ export default function AdminUsersPage() {
                         <TableCell className="capitalize">{getDisplayRole(user)}</TableCell>
                         <TableCell>{user.grade ?? '-'}</TableCell>
                         <TableCell>{user.section ?? '-'}</TableCell>
+                        <TableCell>{user.school_year ?? '-'}</TableCell>
                         <TableCell>
                           <UserManagementActions
                             userId={user.id}
@@ -370,6 +373,16 @@ export default function AdminUsersPage() {
                           {user.grade && user.section && (
                             <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700">
                               {user.grade}/{user.section}
+                            </span>
+                          )}
+                          {user.role === 'teacher' && user.school_year && (
+                            <span className="px-2 py-1 text-xs rounded-full bg-indigo-100 text-indigo-700">
+                              {user.school_year}
+                            </span>
+                          )}
+                          {user.role === 'teacher' && !user.school_year && user.is_approved && (
+                            <span className="px-2 py-1 text-xs rounded-full bg-amber-100 text-amber-800">
+                              Not assigned this year
                             </span>
                           )}
                           <span className={`px-2 py-1 text-xs rounded-full ${

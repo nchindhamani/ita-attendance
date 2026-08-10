@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useRequireRole } from '@/lib/auth-client'
+import { getCurrentSchoolYear } from '@/lib/school-year'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,6 +21,7 @@ type Teacher = {
   role: Role
   grade: string | null
   section: string | null
+  school_year: string | null
   mobile: string | null
   room_number: string | null
   is_active: boolean
@@ -41,7 +43,15 @@ export default function HSCPOfficerTeacherDetailPage() {
     full_name: '',
     email: '',
     mobile: '',
+    grade: '',
+    section: '',
+    room_number: '',
   })
+  const [lastAssignment, setLastAssignment] = useState<{
+    grade: string
+    section: string
+    schoolYear: string
+  } | null>(null)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
   const [passwordData, setPasswordData] = useState<{
     fullName: string
@@ -92,21 +102,50 @@ export default function HSCPOfficerTeacherDetailPage() {
           return
         }
 
-        // Verify this is an HSCP teacher
-        const grade = foundTeacher.grade?.toUpperCase() || ''
-        if (foundTeacher.role !== 'teacher' || !grade.startsWith('HSCP')) {
-          setError('This teacher is not assigned to an HSCP section')
+        if (foundTeacher.role !== 'teacher') {
+          setError('This user is not a teacher')
           setLoading(false)
           return
         }
 
         setTeacher(foundTeacher)
-        // Initialize edit form data
         setEditFormData({
           full_name: foundTeacher.full_name || '',
           email: foundTeacher.email || '',
           mobile: foundTeacher.mobile || '',
+          grade: foundTeacher.grade || '',
+          section: foundTeacher.section || '',
+          room_number: foundTeacher.room_number || '',
         })
+
+        // Prior-year assignment for history message
+        const currentYear = getCurrentSchoolYear()
+        const { data: historyRows } = await supabase
+          .from('teacher_sections')
+          .select('section_id, sections!inner(grade, section, school_year)')
+          .eq('teacher_id', foundTeacher.id)
+
+        type SectionJoin = { grade?: string; section?: string; school_year?: string }
+        const prior = (historyRows || [])
+          .map((row) => {
+            const section = (row as { sections?: SectionJoin | SectionJoin[] }).sections
+            const s = Array.isArray(section) ? section[0] : section
+            return {
+              grade: (s?.grade || '').trim(),
+              section: (s?.section || '').trim(),
+              schoolYear: (s?.school_year || '').trim(),
+            }
+          })
+          .filter(
+            (a) =>
+              a.grade &&
+              a.section &&
+              a.schoolYear &&
+              a.schoolYear !== currentYear &&
+              a.grade.toUpperCase().startsWith('HSCP'),
+          )
+          .sort((a, b) => b.schoolYear.localeCompare(a.schoolYear))
+        setLastAssignment(prior[0] || null)
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to load teacher'
         setError(errorMessage)
@@ -126,6 +165,9 @@ export default function HSCPOfficerTeacherDetailPage() {
       full_name: teacher.full_name || '',
       email: teacher.email || '',
       mobile: teacher.mobile || '',
+      grade: teacher.grade || '',
+      section: teacher.section || '',
+      room_number: teacher.room_number || '',
     })
   }
 
@@ -136,6 +178,9 @@ export default function HSCPOfficerTeacherDetailPage() {
         full_name: teacher.full_name || '',
         email: teacher.email || '',
         mobile: teacher.mobile || '',
+        grade: teacher.grade || '',
+        section: teacher.section || '',
+        room_number: teacher.room_number || '',
       })
     }
   }
@@ -203,6 +248,29 @@ export default function HSCPOfficerTeacherDetailPage() {
       }
       if (editFormData.mobile !== (teacher.mobile || '')) {
         payload.mobile = editFormData.mobile.trim() || null
+      }
+      if (editFormData.grade !== (teacher.grade || '')) {
+        payload.grade = editFormData.grade.trim() || null
+      }
+      if (editFormData.section !== (teacher.section || '')) {
+        payload.section = editFormData.section.trim() || null
+      }
+      if (editFormData.room_number !== (teacher.room_number || '')) {
+        payload.room_number = editFormData.room_number.trim() || null
+      }
+
+      if (
+        (payload.grade !== undefined || payload.section !== undefined) &&
+        (!editFormData.grade.trim() || !editFormData.section.trim())
+      ) {
+        toast.error('Both grade and section are required for HSCP reassignment.')
+        setIsSaving(false)
+        return
+      }
+      if (editFormData.grade.trim() && !editFormData.grade.trim().toUpperCase().startsWith('HSCP')) {
+        toast.error('HSCP officers can only assign HSCP grades.')
+        setIsSaving(false)
+        return
       }
 
       if (Object.keys(payload).length === 0) {
@@ -323,6 +391,16 @@ export default function HSCPOfficerTeacherDetailPage() {
                     {teacher.grade}/{teacher.section}
                   </span>
                 )}
+                {teacher.school_year && (
+                  <span className="px-3 py-1 text-sm rounded-full bg-indigo-100 text-indigo-700">
+                    {teacher.school_year}
+                  </span>
+                )}
+                {!teacher.school_year && teacher.is_approved && (
+                  <span className="px-3 py-1 text-sm rounded-full bg-amber-100 text-amber-800">
+                    Not assigned this year
+                  </span>
+                )}
                 <span className={`px-3 py-1 text-sm rounded-full ${
                   teacher.is_active 
                     ? 'bg-green-100 text-green-700' 
@@ -407,22 +485,66 @@ export default function HSCPOfficerTeacherDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Teaching Assignment */}
-        {(teacher.grade || teacher.section || teacher.room_number) && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Teaching Assignment</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Grade / Section / Room Number</label>
-                <p className="text-base">
-                  {[teacher.grade, teacher.section, teacher.room_number].filter(Boolean).join(' / ') || '-'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* Teaching Assignment — current year; HSCP grades only */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Teaching Assignment</CardTitle>
+            {lastAssignment ? (
+              <p className="text-sm text-muted-foreground font-normal pt-1">
+                {`${teacher.full_name || 'This teacher'} last handled ${lastAssignment.grade} / ${lastAssignment.section} in academic year ${lastAssignment.schoolYear}.`}
+              </p>
+            ) : null}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isEditing ? (
+              <>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Grade</Label>
+                  <Input
+                    value={editFormData.grade}
+                    onChange={(e) => setEditFormData({ ...editFormData, grade: e.target.value })}
+                    className="mt-1"
+                    placeholder="e.g., HSCP-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Section</Label>
+                  <Input
+                    value={editFormData.section}
+                    onChange={(e) => setEditFormData({ ...editFormData, section: e.target.value })}
+                    className="mt-1"
+                    placeholder="e.g., Reading, Writing, Conversation"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Room Number</Label>
+                  <Input
+                    value={editFormData.room_number}
+                    onChange={(e) => setEditFormData({ ...editFormData, room_number: e.target.value })}
+                    className="mt-1"
+                    placeholder="e.g., 101"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">School Year</label>
+                  <p className="text-base">{teacher.school_year || 'Not assigned this year'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">
+                    Grade / Section / Room Number
+                  </label>
+                  <p className="text-base">
+                    {[teacher.grade, teacher.section, teacher.room_number].filter(Boolean).join(' / ') ||
+                      '—'}
+                  </p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         {/* System Information */}
         <Card>

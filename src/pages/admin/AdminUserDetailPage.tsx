@@ -39,6 +39,7 @@ type User = {
   role: Role
   grade: string | null
   section: string | null
+  school_year: string | null
   description: string | null
   mobile: string | null
   room_number: string | null
@@ -77,6 +78,11 @@ export default function AdminUserDetailPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [teacherStudents, setTeacherStudents] = useState<{ id: string; student_identifier: number | null; full_name: string }[]>([])
+  const [lastAssignment, setLastAssignment] = useState<{
+    grade: string
+    section: string
+    schoolYear: string
+  } | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -149,25 +155,51 @@ export default function AdminUserDetailPage() {
     fetchData()
   }, [id, navigate])
 
-  // Fetch students for teachers
+  // Fetch students + last prior-year assignment for teachers
   useEffect(() => {
     if (!user || user.role !== 'teacher') {
       setTeacherStudents([])
+      setLastAssignment(null)
       return
     }
-    const fetchTeacherStudents = async () => {
+    const fetchTeacherContext = async () => {
       try {
-        const { data: settings } = await supabase
-          .from('system_settings')
-          .select('current_school_year')
-          .eq('id', 1)
-          .maybeSingle()
         const schoolYear = getCurrentSchoolYear()
 
+        // Most recent assignment before the current school year
+        const { data: historyRows } = await supabase
+          .from('teacher_sections')
+          .select('section_id, sections!inner(grade, section, school_year)')
+          .eq('teacher_id', user.id)
+
+        type SectionJoin = { grade?: string; section?: string; school_year?: string }
+        const prior = (historyRows || [])
+          .map((row) => {
+            const section = (row as { sections?: SectionJoin | SectionJoin[] }).sections
+            const s = Array.isArray(section) ? section[0] : section
+            return {
+              grade: (s?.grade || '').trim(),
+              section: (s?.section || '').trim(),
+              schoolYear: (s?.school_year || '').trim(),
+            }
+          })
+          .filter(
+            (a) =>
+              a.grade &&
+              a.section &&
+              a.schoolYear &&
+              a.schoolYear !== schoolYear,
+          )
+          .sort((a, b) => b.schoolYear.localeCompare(a.schoolYear))
+
+        setLastAssignment(prior[0] || null)
+
+        // Only current-year classroom assignments for students list
         const { data: assignments } = await supabase
           .from('teacher_sections')
-          .select('section_id')
+          .select('section_id, sections!inner(school_year)')
           .eq('teacher_id', user.id)
+          .eq('sections.school_year', schoolYear)
 
         if (!assignments || assignments.length === 0) {
           setTeacherStudents([])
@@ -199,9 +231,10 @@ export default function AdminUserDetailPage() {
         setTeacherStudents(allStudents)
       } catch {
         setTeacherStudents([])
+        setLastAssignment(null)
       }
     }
-    fetchTeacherStudents()
+    fetchTeacherContext()
   }, [user?.id, user?.role])
 
   const handleUserUpdated = () => {
@@ -527,6 +560,16 @@ export default function AdminUserDetailPage() {
                     {user.grade}/{user.section}
                   </span>
                 )}
+                {user.role === 'teacher' && user.school_year && (
+                  <span className="px-3 py-1 text-sm rounded-full bg-indigo-100 text-indigo-700">
+                    {user.school_year}
+                  </span>
+                )}
+                {user.role === 'teacher' && !user.school_year && user.is_approved && (
+                  <span className="px-3 py-1 text-sm rounded-full bg-amber-100 text-amber-800">
+                    Not assigned this year
+                  </span>
+                )}
                 <span className={`px-3 py-1 text-sm rounded-full ${
                   user.is_active 
                     ? 'bg-green-100 text-green-700' 
@@ -661,11 +704,16 @@ export default function AdminUserDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Teaching Assignment (only for teachers) */}
-          {user.role === 'teacher' && (user.grade || user.section || user.room_number || isEditing) && (
+          {/* Teaching Assignment (only for teachers) — current school year */}
+          {user.role === 'teacher' && (
             <Card>
               <CardHeader>
                 <CardTitle>Teaching Assignment</CardTitle>
+                {lastAssignment ? (
+                  <p className="text-sm text-muted-foreground font-normal pt-1">
+                    {`${user.full_name || 'This teacher'} last handled ${lastAssignment.grade} / ${lastAssignment.section} in academic year ${lastAssignment.schoolYear}.`}
+                  </p>
+                ) : null}
               </CardHeader>
               <CardContent className="space-y-4">
                 {isEditing ? (
@@ -685,7 +733,7 @@ export default function AdminUserDetailPage() {
                         value={editFormData.section}
                         onChange={(e) => setEditFormData({ ...editFormData, section: e.target.value })}
                         className="mt-1"
-                        placeholder="e.g., A, B, 1"
+                        placeholder="e.g., A, B, Reading"
                       />
                     </div>
                     <div>
@@ -700,14 +748,16 @@ export default function AdminUserDetailPage() {
                   </>
                 ) : (
                   <>
-                    {(user.grade || user.section || user.room_number) && (
-                      <div>
-                        <label className="text-sm font-medium text-muted-foreground">Grade / Section / Room Number</label>
-                        <p className="text-base">
-                          {[user.grade, user.section, user.room_number].filter(Boolean).join(' / ') || '-'}
-                        </p>
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">School Year</label>
+                      <p className="text-base">{user.school_year || 'Not assigned this year'}</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Grade / Section / Room Number</label>
+                      <p className="text-base">
+                        {[user.grade, user.section, user.room_number].filter(Boolean).join(' / ') || '—'}
+                      </p>
+                    </div>
                   </>
                 )}
               </CardContent>

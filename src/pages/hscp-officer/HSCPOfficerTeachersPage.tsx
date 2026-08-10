@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty-state'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useRequireRole } from '@/lib/auth-client'
+import { getCurrentSchoolYear } from '@/lib/school-year'
 import { Role } from '@/lib/types'
 
 const supabase = createSupabaseBrowserClient()
@@ -17,6 +18,7 @@ type Teacher = {
   role: Role
   grade: string | null
   section: string | null
+  school_year: string | null
   mobile: string | null
   is_active: boolean
   is_approved: boolean
@@ -31,6 +33,7 @@ export default function HSCPOfficerTeachersPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const schoolYear = getCurrentSchoolYear()
 
   useEffect(() => {
     const fetchData = async () => {
@@ -38,18 +41,17 @@ export default function HSCPOfficerTeachersPage() {
         setLoading(true)
         setError(null)
 
-        // Get session for authentication
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) {
           navigate('/auth/login')
           return
         }
 
-        // Fetch all users from backend API
+        // Includes current-year HSCP teachers + prior HSCP teachers (for reassignment)
         const response = await fetch('/api/admin/users', {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${session.access_token}`,
             'Content-Type': 'application/json',
           },
         })
@@ -60,13 +62,9 @@ export default function HSCPOfficerTeachersPage() {
         }
 
         const data = await response.json()
-        const allUsers = data.users || []
-
-        // Filter to only HSCP teachers (teachers with grade starting with 'HSCP')
-        const hscpTeachers = allUsers.filter((user: Teacher) => {
-          const grade = user.grade?.toUpperCase() || ''
-          return user.role === 'teacher' && grade.startsWith('HSCP')
-        })
+        const hscpTeachers = (data.users || []).filter(
+          (user: Teacher) => user.role === 'teacher',
+        )
 
         setTeachers(hscpTeachers)
         setFilteredTeachers(hscpTeachers)
@@ -82,18 +80,18 @@ export default function HSCPOfficerTeachersPage() {
     fetchData()
   }, [navigate])
 
-  // Filter teachers based on search
   useEffect(() => {
     let filtered = teachers
 
-    // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(teacher => 
-        teacher.full_name?.toLowerCase().includes(query) ||
-        teacher.email?.toLowerCase().includes(query) ||
-        teacher.grade?.toLowerCase().includes(query) ||
-        teacher.section?.toLowerCase().includes(query)
+      filtered = filtered.filter(
+        (teacher) =>
+          teacher.full_name?.toLowerCase().includes(query) ||
+          teacher.email?.toLowerCase().includes(query) ||
+          teacher.grade?.toLowerCase().includes(query) ||
+          teacher.section?.toLowerCase().includes(query) ||
+          teacher.school_year?.toLowerCase().includes(query),
       )
     }
 
@@ -102,7 +100,12 @@ export default function HSCPOfficerTeachersPage() {
 
   const getInitials = (name: string | null) => {
     if (!name) return '??'
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2)
   }
 
   if (loading) {
@@ -131,11 +134,10 @@ export default function HSCPOfficerTeachersPage() {
           HSCP Teachers Directory
         </h2>
         <p className="text-base text-muted-foreground">
-          View and manage HSCP teachers.
+          View and reassign HSCP teachers for school year {schoolYear}.
         </p>
       </div>
 
-      {/* Search */}
       <div className="relative flex-1 max-w-md">
         <Input
           placeholder="Search by name, email, grade, or section..."
@@ -146,12 +148,11 @@ export default function HSCPOfficerTeachersPage() {
         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">🔍</span>
       </div>
 
-      {/* Teachers Cards Grid */}
       {filteredTeachers.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTeachers.map((teacher) => (
-            <Card 
-              key={teacher.id} 
+            <Card
+              key={teacher.id}
               className="hover:shadow-lg transition-shadow cursor-pointer"
               onClick={() => navigate(`/hscp-officer/teachers/${teacher.id}`)}
             >
@@ -169,11 +170,23 @@ export default function HSCPOfficerTeachersPage() {
                           {teacher.grade}/{teacher.section}
                         </span>
                       )}
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        teacher.is_active 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-red-100 text-red-700'
-                      }`}>
+                      {teacher.school_year && (
+                        <span className="px-2 py-1 text-xs rounded-full bg-indigo-100 text-indigo-700">
+                          {teacher.school_year}
+                        </span>
+                      )}
+                      {!teacher.school_year && teacher.is_approved && (
+                        <span className="px-2 py-1 text-xs rounded-full bg-amber-100 text-amber-800">
+                          Not assigned this year
+                        </span>
+                      )}
+                      <span
+                        className={`px-2 py-1 text-xs rounded-full ${
+                          teacher.is_active
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-red-100 text-red-700'
+                        }`}
+                      >
                         {teacher.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </div>
@@ -200,14 +213,9 @@ export default function HSCPOfficerTeachersPage() {
         <EmptyState
           icon="users"
           title="No HSCP teachers found"
-          description={searchQuery 
-            ? "Try adjusting your search."
-            : "No HSCP teachers are currently registered."}
+          description="No HSCP teachers match your search."
         />
       )}
     </div>
   )
 }
-
-
-
