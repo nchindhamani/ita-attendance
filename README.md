@@ -1,88 +1,104 @@
 # ITA Attendance Portal
 
-Web application for the International Tamil Academy (California) to manage student, teacher, and staff attendance across regular and HSCP programs.
+Production web application for the **International Tamil Academy (California)** that manages student, teacher, and volunteer attendance across regular classes and HSCP programs.
 
-## Core Features
+Built end-to-end as a full-stack product: role-based access, school-year data isolation, calendar-driven attendance, CSV bulk operations, and archival workflows — deployed to Vercel with Supabase as the data platform.
 
-- **Roles:** Admin, Principal, Attendance Officer, HSCP Officer, Teacher, Volunteer
-- **Authentication:** Email login, verification, admin approval, temporary passwords / forced reset
-- **Master switch:** `profiles.is_active` blocks login and session use
-- **School year:** August–May (America/Los_Angeles); current year is derived from that calendar
-- **Working days:** Uploaded calendars (HSCP vs Regular) drive attendance date pickers
-- **Classroom management:** Grade / section / room for the current school year; HSCP creates Conversation, Reading, Writing together
-- **Teacher assignments:** Year-scoped via `teacher_sections` → `sections` (prior years preserved on reassignment)
-- **Attendance:** Present, Absent, Late, Left Early + comments for students and teachers; volunteer/other staff attendance for admins/principals
-- **Rosters:** Manual add and CSV upload
-- **Archive:** Two-stage archive/purge of student data by school year (Supabase Storage)
-- **Staff lifecycle:** Deactivate accounts in-app; optional end-of-year SQL script to deactivate non-admin / non-HSCP-officer staff one month after the last working day
+---
 
-## Tech Stack
+## Why this project matters
 
-| Layer | Technology |
-|--------|------------|
-| Frontend | React 18, Vite, React Router, TypeScript, Tailwind CSS, Shadcn-style UI |
-| API | FastAPI (`api/index.py`), deployed as a Vercel serverless function |
-| Data / Auth | Supabase (PostgreSQL, Auth, Storage) |
-| Deployment | Vercel |
+This is not a demo CRUD app. It solves real operational needs for a multi-role school organization:
 
-## Project layout (high level)
+- Different staff roles need different capabilities (record vs view, HSCP vs regular)
+- Historical data must survive year-to-year reassignments (same teacher, new grade/section)
+- Attendance dates must follow uploaded working-day calendars, not open-ended pickers
+- Admins need bulk upload, classroom setup, and controlled archival — without losing auditability
 
-- `src/` — React app (pages, features, components)
-- `api/index.py` — FastAPI backend
-- `supabase/` — schema, migrations, and operational SQL scripts
-- `scripts/` — local dev helpers (`dev.sh`, `dev-api.sh`, etc.)
+---
 
-## Setup
+## Highlights for reviewers
 
-### 1. Supabase
+### Product & domain complexity
+- **6 roles** with distinct UX and permissions: Admin, Principal, Attendance Officer, HSCP Officer, Teacher, Volunteer
+- **Dual program support:** Regular grades + HSCP (Conversation / Reading / Writing)
+- **School-year model (Aug–May, Pacific time)** as the source of truth for “current” operations
+- **Year-scoped teacher assignments** so prior-year history is preserved when someone teaches a different class next year
+- **Working-days allowlists** (HSCP vs Regular calendars) that drive date pickers and save rules across attendance flows
 
-1. Create a Supabase project.
-2. Apply schema / migrations under `supabase/` (start from `supabase/schema.sql` and apply later migrations as needed, including working days and audit columns).
-3. Create a storage bucket named `ITA_attendance_archives` if you use archive features.
+### Engineering depth
+- **Vite + React + TypeScript** SPA with shared feature modules and role-specific pages
+- **FastAPI backend** (Python) as a Vercel serverless API — auth-aware endpoints, bulk imports, classroom and working-days management
+- **Supabase** for Postgres, Auth, RLS-aware patterns, and Storage (archives)
+- **CSV pipelines** for students, classrooms, and working days (parse → validate → replace/insert with clear errors)
+- **Operational SQL** for schema migrations and safe end-of-year staff deactivation (manual, cost-free)
 
-### 2. Environment
+### UX & reliability
+- Custom calendar UI constrained to valid class days; clear messaging for future / non-working days
+- Classroom management with guarded deletes (students block; attendance can be moved; teacher links confirmed)
+- Audit fields on key tables (`created_by`, `last_updated_by`, timestamps) for backend traceability
+- Inactivity logout, forced password reset, and `is_active` as a hard account kill-switch
 
-Create `.env.local` in the project root:
+---
 
-```bash
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-SUPABASE_JWT_SECRET=...          # from Supabase project settings (JWT secret)
-VITE_SITE_URL=http://localhost:3003
+## Core feature set
+
+| Area | Capabilities |
+|------|----------------|
+| Auth & access | Email login, verification, approval queue, temporary passwords, role-based navigation |
+| Attendance | Student & teacher attendance (Present / Absent / Late / Left Early + comments); volunteer/staff attendance |
+| Calendars | Working-days upload; date pickers limited to uploaded class days |
+| Classrooms | Create/list/edit room; HSCP trio creation; safe delete with attendance move |
+| Staff | Staff directory, reassignment for current year, HSCP officer reassignment for HSCP teachers only |
+| Students | Manual add + CSV; section required for regular grades; HSCP multi-section handling |
+| Governance | Two-stage archive/purge; end-of-year deactivate script (everyone except Admin & HSCP Officer) |
+
+---
+
+## Architecture
+
+```
+┌─────────────────┐     /api/*      ┌──────────────────┐
+│  React (Vite)   │ ───────────────► │  FastAPI (Vercel) │
+│  Role-based UI  │                  │  Business logic   │
+└────────┬────────┘                  └────────┬─────────┘
+         │                                    │
+         │         Supabase JS / service role │
+         └────────────────┬───────────────────┘
+                          ▼
+                 ┌─────────────────┐
+                 │ Supabase        │
+                 │ Postgres · Auth │
+                 │ Storage         │
+                 └─────────────────┘
 ```
 
-Do not commit `.env.local` (it is gitignored).
+**Local defaults:** frontend `http://localhost:3003` (proxies `/api` → API on `8002`).
 
-### 3. Install & run locally
+---
+
+## Tech stack
+
+- **Frontend:** React 18, Vite, React Router, TypeScript, Tailwind CSS, Radix/Shadcn-style UI
+- **Backend:** FastAPI (`api/index.py`)
+- **Platform:** Supabase (PostgreSQL, Auth, Storage), Vercel
+
+---
+
+## Local setup (optional)
 
 ```bash
 npm install
+# Create .env.local with VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY,
+# SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET
 npm run dev:all
 ```
 
-- Frontend: [http://localhost:3003](http://localhost:3003) (Vite proxies `/api` → the API)
-- API: [http://localhost:8002](http://localhost:8002)
+Apply SQL under `supabase/` (schema + migrations) in your Supabase project as needed.
 
-Or run separately:
+---
 
-```bash
-npm run dev        # frontend only
-npm run dev:api    # FastAPI only
-```
+## Repository notes
 
-Python API dependencies are managed by the API start script (see `scripts/dev-api.sh`).
-
-### 4. Useful SQL scripts
-
-| Script | Purpose |
-|--------|---------|
-| `supabase/migrations/` | Schema evolution |
-| `supabase/create_working_days.sql` | Working days table |
-| `supabase/deactivate_staff_after_school_year.sql` | Manual end-of-year staff deactivation (preview + update) |
-
-## Notes for contributors
-
-- Teacher grade/section for a given year comes from **classroom assignment** (`teacher_sections` → `sections.school_year`), not only from `profiles.grade`.
-- Internal docs under `/docs` are gitignored and are not part of the public repo.
-- Prefer `npm run dev:all` so the UI and API stay in sync during local development.
+- Internal documentation under `/docs` is gitignored and not published with this repo.
+- Secrets live in `.env.local` / host env vars — never committed.
