@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { getCurrentSchoolYear } from '@/lib/school-year'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StudentAttendanceSearch } from '@/features/admin/StudentAttendanceSearch'
+import { HSCPBulkStudentUpload } from '@/features/hscp/HSCPBulkStudentUpload'
 import { toast } from 'sonner'
 import { Trash2 } from 'lucide-react'
 import {
@@ -41,12 +43,15 @@ export interface StudentLookupPageProps {
   basePath?: string
   title?: string
   canDelete?: boolean
+  /** Show HSCP bulk CSV upload (admins) */
+  canBulkAddHscp?: boolean
 }
 
 export function StudentLookupPage({
   basePath = '/admin/student-attendance',
   title = 'Student Attendance Lookup',
   canDelete = false,
+  canBulkAddHscp = false,
 }: StudentLookupPageProps) {
   const [searchParams] = useSearchParams()
 
@@ -64,6 +69,12 @@ export function StudentLookupPage({
   const [selectedHscpTab, setSelectedHscpTab] = useState<string>('Reading')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [currentSchoolYear, setCurrentSchoolYear] = useState(getCurrentSchoolYear())
+
+  useEffect(() => {
+    if (!canBulkAddHscp) return
+    setCurrentSchoolYear(getCurrentSchoolYear())
+  }, [canBulkAddHscp])
 
   useEffect(() => {
     if (!studentIdInput) {
@@ -316,13 +327,18 @@ export function StudentLookupPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">
-          {title}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Search by ITA Student ID and pick a school year.
-        </p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">
+            {title}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Search by ITA Student ID and pick a school year.
+          </p>
+        </div>
+        {canBulkAddHscp ? (
+          <HSCPBulkStudentUpload schoolYear={currentSchoolYear} />
+        ) : null}
       </div>
 
       <Card>

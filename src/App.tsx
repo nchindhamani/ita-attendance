@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { Sonner } from '@/components/ui/sonner'
 
 // Auth pages
@@ -24,11 +24,14 @@ import TeacherPage from './pages/teacher/TeacherPage'
 import TeacherStudentAttendancePage from './pages/teacher/TeacherStudentAttendancePage'
 
 // Admin pages
-import AdminPage from './pages/admin/AdminPage'
+// PREVIOUS: Admin Overview home page
+// import AdminPage from './pages/admin/AdminPage'
 import AdminUsersPage from './pages/admin/AdminUsersPage'
 import AdminUserDetailPage from './pages/admin/AdminUserDetailPage'
 import AdminAttendancePage from './pages/admin/AdminAttendancePage'
 import AdminStudentAttendancePage from './pages/admin/AdminStudentAttendancePage'
+import AdminWorkingDaysPage from './pages/admin/AdminWorkingDaysPage'
+import AdminClassroomManagementPage from './pages/admin/AdminClassroomManagementPage'
 import AdminArchivePage from './pages/admin/AdminArchivePage'
 
 // Principal pages
@@ -52,6 +55,8 @@ import HSCPOfficerPage from './pages/hscp-officer/HSCPOfficerPage'
 import HSCPOfficerUsersPage from './pages/hscp-officer/HSCPOfficerUsersPage'
 import HSCPOfficerTeacherAttendancePage from './pages/hscp-officer/HSCPOfficerTeacherAttendancePage'
 import HSCPOfficerStudentAttendancePage from './pages/hscp-officer/HSCPOfficerStudentAttendancePage'
+import HSCPOfficerWorkingDaysPage from './pages/hscp-officer/HSCPOfficerWorkingDaysPage'
+import HSCPOfficerClassroomManagementPage from './pages/hscp-officer/HSCPOfficerClassroomManagementPage'
 import HSCPOfficerRecordStudentAttendancePage from './pages/hscp-officer/HSCPOfficerRecordStudentAttendancePage'
 import HSCPOfficerRecordTeacherAttendancePage from './pages/hscp-officer/HSCPOfficerRecordTeacherAttendancePage'
 import HSCPOfficerTeachersPage from './pages/hscp-officer/HSCPOfficerTeachersPage'
@@ -101,11 +106,15 @@ function App() {
           <Route path="/teacher/student-attendance" element={<TeacherStudentAttendancePage />} />
           
           {/* Admin routes */}
-          <Route path="/admin" element={<AdminPage />} />
+          {/* Admin home is Staff Management; /admin redirects there */}
+          <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
+          {/* PREVIOUS: <Route path="/admin" element={<AdminPage />} /> */}
           <Route path="/admin/users" element={<AdminUsersPage />} />
           <Route path="/admin/users/:id" element={<AdminUserDetailPage />} />
           <Route path="/admin/attendance" element={<AdminAttendancePage />} />
           <Route path="/admin/student-attendance" element={<AdminStudentAttendancePage />} />
+          <Route path="/admin/working-days" element={<AdminWorkingDaysPage />} />
+          <Route path="/admin/classrooms" element={<AdminClassroomManagementPage />} />
           <Route path="/admin/staff-attendance" element={<PrincipalStaffAttendancePage />} />
           <Route path="/admin/archive" element={<AdminArchivePage />} />
           
@@ -134,6 +143,8 @@ function App() {
           <Route path="/hscp-officer/teachers/:id" element={<HSCPOfficerTeacherDetailPage />} />
           <Route path="/hscp-officer/teacher-attendance" element={<HSCPOfficerTeacherAttendancePage />} />
           <Route path="/hscp-officer/student-attendance" element={<HSCPOfficerStudentAttendancePage />} />
+          <Route path="/hscp-officer/working-days" element={<HSCPOfficerWorkingDaysPage />} />
+          <Route path="/hscp-officer/classrooms" element={<HSCPOfficerClassroomManagementPage />} />
           <Route path="/hscp-officer/record-teacher-attendance" element={<HSCPOfficerRecordTeacherAttendancePage />} />
           <Route path="/hscp-officer/record-student-attendance" element={<HSCPOfficerRecordStudentAttendancePage />} />
         </Route>

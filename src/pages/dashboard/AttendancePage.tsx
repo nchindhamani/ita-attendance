@@ -1,8 +1,16 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate, isAfterDailyCutoff } from '@/lib/time'
+import { getCurrentSchoolYear } from '@/lib/school-year'
+import {
+  calendarTypeForGrade,
+  fetchWorkingDays,
+  formatIsoAsMdY,
+  pickDefaultWorkingDate,
+} from '@/lib/working-days'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AttendanceEditor } from '@/features/attendance/AttendanceEditor'
@@ -23,10 +31,10 @@ type Student = {
   student_identifier: number | null
 }
 
-type Holiday = {
-  holiday_date: string
-  name: string
-}
+// type Holiday = {
+//   holiday_date: string
+//   name: string
+// }
 
 type AttendanceEntry = {
   student_id: string
@@ -47,12 +55,14 @@ export default function AttendancePage() {
   const [section, setSection] = useState<Section | null>(null)
   const [students, setStudents] = useState<Student[]>([])
   const [existingAttendance, setExistingAttendance] = useState<Record<string, { status: AttendanceStatus; comments?: string | null }>>({})
-  const [holiday, setHoliday] = useState<Holiday | null>(null)
+  // const [holiday, setHoliday] = useState<Holiday | null>(null)
+  const [workingDays, setWorkingDays] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
   const sectionLoadedRef = useRef(false)
   const cachedSectionRef = useRef<Section | null>(null)
   const cachedStudentIdsRef = useRef<string[]>([])
+  const workingDaysInitializedRef = useRef(false)
 
   // Update URL if date param is missing
   useEffect(() => {
@@ -101,7 +111,7 @@ export default function AttendancePage() {
         .from('sections')
         .select('id')
         .eq('grade', sectionToFetch.grade)
-        .eq('school_year', sectionToFetch.school_year || '2025-2026')
+        .eq('school_year', sectionToFetch.school_year || getCurrentSchoolYear())
       
       if (allSectionsData && allSectionsData.length > 0) {
         const sectionIds = allSectionsData.map(s => s.id)
@@ -109,7 +119,7 @@ export default function AttendancePage() {
           .from('students')
           .select('id,full_name,student_identifier')
           .in('section_id', sectionIds)
-          .eq('school_year', sectionToFetch.school_year || '2025-2026')
+          .eq('school_year', sectionToFetch.school_year || getCurrentSchoolYear())
           .order('full_name', { ascending: true })
         
         studentsData = result.data
@@ -138,18 +148,45 @@ export default function AttendancePage() {
     return studentsData ?? []
   }
 
-  // Fetch attendance + holiday for a given date (reusable)
+  // Load working days when section (grade calendar) is known
+  useEffect(() => {
+    if (!section?.school_year) return
+    let cancelled = false
+    const calendarType = calendarTypeForGrade(section.grade)
+    const today = formatPacificDate(new Date())
+    const loadWorkingDays = async () => {
+      const dates = await fetchWorkingDays(section.school_year ?? getCurrentSchoolYear(), calendarType)
+      if (cancelled) return
+      setWorkingDays(dates)
+      if (!workingDaysInitializedRef.current) {
+        workingDaysInitializedRef.current = true
+        const preferred = dateParam || pickDefaultWorkingDate(dates, today)
+        if (preferred && preferred !== selectedDate) {
+          setSelectedDate(preferred)
+        }
+      } else if (dates.length && !dates.includes(selectedDate)) {
+        const preferred = pickDefaultWorkingDate(dates, today)
+        if (preferred) setSelectedDate(preferred)
+      }
+    }
+    loadWorkingDays()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section?.id, section?.grade, section?.school_year])
+
+  // Fetch attendance for a given date (reusable)
   const fetchAttendanceForDate = useCallback(async (date: string, sectionData: Section, studentIds: string[]) => {
     try {
-      // Check for holiday
-      const { data: holidayData } = await supabase
-        .from('holidays')
-        .select('holiday_date,name')
-        .eq('school_year', sectionData.school_year ?? '')
-        .eq('holiday_date', date)
-        .maybeSingle()
-
-      setHoliday(holidayData || null)
+      // Holiday check disabled — working days allowlist is enforced in UI + API
+      // const { data: holidayData } = await supabase
+      //   .from('holidays')
+      //   .select('holiday_date,name')
+      //   .eq('school_year', sectionData.school_year ?? '')
+      //   .eq('holiday_date', date)
+      //   .maybeSingle()
+      // setHoliday(holidayData || null)
 
       // Fetch existing attendance for this specific section and selected date
       if (studentIds.length > 0) {
@@ -296,16 +333,23 @@ export default function AttendancePage() {
     )
   }
 
-  // Only lock on holidays, not time-based (no 11PM cutoff)
-  const locked = Boolean(holiday)
-  
-  // Check if selected date is in the future
   const today = formatPacificDate(new Date())
   const isFutureDate = selectedDate > today
+  const calendarType = calendarTypeForGrade(section.grade)
+  const isWorkingDay = workingDays.includes(selectedDate)
+  const lockMessage =
+    workingDays.length === 0
+      ? `No working days uploaded for the ${calendarType === 'hscp' ? 'HSCP' : 'Regular'} calendar (${section.school_year}). Upload them under Working Days first.`
+      : !isWorkingDay
+        ? 'Selected date is not a working day. Choose a listed class day from your upload.'
+        : isFutureDate
+          ? `This is a future class day (next: ${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
+          : null
+  const locked = Boolean(lockMessage)
 
   const handleDateChange = (newDate: string) => {
-    // Don't allow future dates
-    if (newDate > today) {
+    if (workingDays.length && !workingDays.includes(newDate)) {
+      toast.error('That date is not a working day. Choose a listed class day.')
       return
     }
     setSelectedDate(newDate)
@@ -329,7 +373,9 @@ export default function AttendancePage() {
         students={students}
         existing={existingAttendance}
         locked={locked || isFutureDate}
-        holidayName={holiday?.name ?? null}
+        holidayName={null}
+        lockMessage={lockMessage}
+        allowedDates={workingDays}
         schoolYearDisplay={section.school_year}
         onDateChange={handleDateChange}
         sectionGrade={section.grade}

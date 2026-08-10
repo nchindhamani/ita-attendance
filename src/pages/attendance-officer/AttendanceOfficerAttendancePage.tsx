@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { DateInput } from '@/components/ui/date-input'
 import { HistoryTable } from '@/features/history/HistoryTable'
 import { AttendanceStatistics } from '@/features/attendance/AttendanceStatistics'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
+import { getCurrentSchoolYear } from '@/lib/school-year'
+import { useWorkingDays } from '@/lib/use-working-days'
 import { useRequireRole } from '@/lib/auth-client'
 
 const supabase = createSupabaseBrowserClient()
@@ -27,15 +29,16 @@ type AttendanceEntry = {
 
 export default function AttendanceOfficerAttendancePage() {
   useRequireRole('attendance_officer')
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  
+
   const sectionIdParam = searchParams.get('section')
   const dateParam = searchParams.get('date')
-  
+
   const [sections, setSections] = useState<Section[]>([])
   const [selectedSectionId, setSelectedSectionId] = useState<string>(sectionIdParam || '')
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
+  const [schoolYear] = useState(getCurrentSchoolYear())
   const [attendanceEntries, setAttendanceEntries] = useState<AttendanceEntry[]>([])
   const [statistics, setStatistics] = useState({
     present: 0,
@@ -45,6 +48,18 @@ export default function AttendanceOfficerAttendancePage() {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const selectedSection = sections.find((s) => s.id === selectedSectionId)
+
+  const { workingDays, pickerMin, pickerMax } = useWorkingDays({
+    schoolYear,
+    scope: selectedSection
+      ? { mode: 'grade', grade: selectedSection.grade }
+      : { mode: 'type', calendarType: 'regular' },
+    selectedDate,
+    dateParam,
+    onDateResolved: (iso) => setSelectedDate(iso),
+  })
 
   // Fetch sections on mount (read-only via RLS)
   useEffect(() => {
@@ -56,6 +71,7 @@ export default function AttendanceOfficerAttendancePage() {
         const { data, error: fetchError } = await supabase
           .from('sections')
           .select('id,grade,section')
+          .eq('school_year', schoolYear)
           .order('grade', { ascending: true })
 
         if (fetchError) {
@@ -78,7 +94,7 @@ export default function AttendanceOfficerAttendancePage() {
     }
 
     fetchSections()
-  }, [selectedSectionId])
+  }, [schoolYear, selectedSectionId])
 
   // Fetch attendance when section or date changes
   useEffect(() => {
@@ -93,7 +109,6 @@ export default function AttendanceOfficerAttendancePage() {
         setLoading(true)
         setError(null)
 
-        // Fetch attendance via RLS (read-only access)
         const { data, error: fetchError } = await supabase
           .from('student_attendance')
           .select(`
@@ -108,7 +123,6 @@ export default function AttendanceOfficerAttendancePage() {
           throw new Error(fetchError.message)
         }
 
-        // Transform data
         const entries: AttendanceEntry[] = (data || []).map((item: any) => {
           const student = Array.isArray(item.students) ? item.students[0] : item.students
           return {
@@ -119,12 +133,11 @@ export default function AttendanceOfficerAttendancePage() {
           }
         })
 
-        // Calculate statistics
         const stats = {
-          present: entries.filter(e => e.status === 'present').length,
-          absent: entries.filter(e => e.status === 'absent').length,
-          late: entries.filter(e => e.status === 'late').length,
-          left_early: entries.filter(e => e.status === 'left_early').length,
+          present: entries.filter((e) => e.status === 'present').length,
+          absent: entries.filter((e) => e.status === 'absent').length,
+          late: entries.filter((e) => e.status === 'late').length,
+          left_early: entries.filter((e) => e.status === 'left_early').length,
         }
 
         setAttendanceEntries(entries)
@@ -143,21 +156,12 @@ export default function AttendanceOfficerAttendancePage() {
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const formData = new FormData(e.currentTarget)
-    const section = formData.get('section') as string
-    const date = formData.get('date') as string
-    
-    setSelectedSectionId(section)
-    setSelectedDate(date)
-    
-    // Update URL params
     const newParams = new URLSearchParams()
-    if (section) newParams.set('section', section)
-    if (date) newParams.set('date', date)
+    if (selectedSectionId) newParams.set('section', selectedSectionId)
+    if (selectedDate) newParams.set('date', selectedDate)
     navigate(`/attendance-officer/attendance?${newParams.toString()}`, { replace: true })
   }
 
-  const selectedSection = sections.find((s) => s.id === selectedSectionId)
   const filename = `attendance-${selectedSection?.grade ?? ''}-${selectedSection?.section ?? ''}-${selectedDate}.csv`
 
   if (loading && sections.length === 0) {
@@ -208,16 +212,26 @@ export default function AttendanceOfficerAttendancePage() {
             </select>
             <DateInput
               value={selectedDate}
-              onChange={(newDate) => setSelectedDate(newDate)}
-              max={formatPacificDate(new Date())}
-              className="h-10"
+              onChange={(newDate) => {
+                if (workingDays.length && !workingDays.includes(newDate)) {
+                  toast.error('That date is not a working day. Choose a listed class day.')
+                  return
+                }
+                setSelectedDate(newDate)
+              }}
+              min={pickerMin}
+              max={pickerMax}
+              allowedDates={workingDays.length > 0 ? workingDays : undefined}
+              onDisallowedDate={() => {
+                toast.error('That date is not a working day. Choose a listed class day.')
+              }}
+              className="h-10 min-w-[180px]"
             />
             <Button type="submit">View</Button>
           </form>
         </CardContent>
       </Card>
 
-      {/* Statistics Cards */}
       {attendanceEntries.length > 0 && (
         <AttendanceStatistics counts={statistics} />
       )}
@@ -228,22 +242,13 @@ export default function AttendanceOfficerAttendancePage() {
         </div>
       ) : error ? (
         <Card>
-          <CardContent className="p-8 text-center">
+          <CardContent className="pt-6">
             <p className="text-destructive">{error}</p>
-            <Button onClick={() => window.location.reload()} className="mt-4">
-              Retry
-            </Button>
           </CardContent>
         </Card>
       ) : (
-        <HistoryTable
-          rows={attendanceEntries}
-          filename={filename}
-        />
+        <HistoryTable rows={attendanceEntries} filename={filename} />
       )}
     </div>
   )
 }
-
-
-

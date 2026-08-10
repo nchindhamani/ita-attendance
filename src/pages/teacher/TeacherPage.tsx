@@ -4,6 +4,7 @@ import Papa from 'papaparse'
 import { toast } from 'sonner'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { getCurrentSchoolYear } from '@/lib/school-year'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -162,7 +163,7 @@ export default function TeacherPage() {
                 .from('sections')
                 .select('id')
                 .eq('grade', section.grade)
-                .eq('school_year', section.school_year || '2025-2026')
+                .eq('school_year', section.school_year || getCurrentSchoolYear())
               
               if (allSectionsData && allSectionsData.length > 0) {
                 const sectionIds = allSectionsData.map(s => s.id)
@@ -170,7 +171,7 @@ export default function TeacherPage() {
                   .from('students')
                   .select('id,student_identifier,full_name')
                   .in('section_id', sectionIds)
-                  .eq('school_year', section.school_year || '2025-2026')
+                  .eq('school_year', section.school_year || getCurrentSchoolYear())
                   .order('student_identifier', { ascending: true })
                 
                 studentsData = result.data
@@ -243,7 +244,7 @@ export default function TeacherPage() {
           .from('sections')
           .select('id')
           .eq('grade', section.grade)
-          .eq('school_year', section.school_year || '2025-2026')
+          .eq('school_year', section.school_year || getCurrentSchoolYear())
         
         if (allSectionsData && allSectionsData.length > 0) {
           const sectionIds = allSectionsData.map(s => s.id)
@@ -251,7 +252,7 @@ export default function TeacherPage() {
             .from('students')
             .select('id,student_identifier,full_name')
             .in('section_id', sectionIds)
-            .eq('school_year', section.school_year || '2025-2026')
+            .eq('school_year', section.school_year || getCurrentSchoolYear())
             .order('student_identifier', { ascending: true })
           
           studentsData = result.data
@@ -595,7 +596,7 @@ export default function TeacherPage() {
                             </div>
                             <div className="flex justify-end">
                               <Button 
-                                onClick={() => handleManualAdd(section.id, section.school_year || '2025-2026')} 
+                                onClick={() => handleManualAdd(section.id, section.school_year || getCurrentSchoolYear())} 
                                 disabled={isPending}
                               >
                                 {isPending ? 'Adding...' : 'Add student'}
@@ -616,7 +617,7 @@ export default function TeacherPage() {
                           onChange={(event) => {
                             const file = event.target.files?.[0]
                             if (file) {
-                              handleCsvUpload(file, section.id, section.school_year || '2025-2026')
+                              handleCsvUpload(file, section.id, section.school_year || getCurrentSchoolYear())
                             }
                           }}
                         />

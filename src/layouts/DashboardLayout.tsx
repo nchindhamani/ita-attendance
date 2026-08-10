@@ -24,11 +24,12 @@ export default function DashboardLayout() {
     switch (profile.role) {
       case "admin":
         return [
-          { href: "/admin", label: "Admin Overview" },
           { href: "/admin/users", label: "Staff Management" },
+          { href: "/admin/student-attendance", label: "Student Management" },
           { href: "/admin/attendance", label: "Attendance" },
-          { href: "/admin/student-attendance", label: "Student Lookup" },
           { href: "/admin/staff-attendance", label: "Record Volunteer/Staff Attendance" },
+          { href: "/admin/working-days", label: "Working Days" },
+          { href: "/admin/classrooms", label: "Classroom Management" },
           { href: "/admin/archive", label: "Archive" },
           { href: "/profile", label: "Profile" },
         ]
@@ -57,7 +58,9 @@ export default function DashboardLayout() {
           { href: "/hscp-officer/record-student-attendance", label: "Record Student Attendance" },
           { href: "/hscp-officer/teacher-attendance", label: "View HSCP Attendance" },
           { href: "/hscp-officer/users", label: "HSCP Teacher Management" },
-          { href: "/hscp-officer/student-attendance", label: "HSCP Student Lookup" },
+          { href: "/hscp-officer/student-attendance", label: "HSCP Student Management" },
+          { href: "/hscp-officer/working-days", label: "Working Days" },
+          { href: "/hscp-officer/classrooms", label: "Classroom Management" },
           { href: "/profile", label: "Profile" },
         ]
       case "teacher":

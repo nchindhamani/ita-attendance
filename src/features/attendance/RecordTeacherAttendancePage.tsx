@@ -3,6 +3,8 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
+import { getCurrentSchoolYear } from '@/lib/school-year'
+import { fetchWorkingDays, formatIsoAsMdY, pickDefaultWorkingDate } from '@/lib/working-days'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,10 +27,10 @@ type Teacher = {
   section: string | null
 }
 
-type Holiday = {
-  holiday_date: string
-  name: string
-}
+// type Holiday = {
+//   holiday_date: string
+//   name: string
+// }
 
 type AttendanceEntry = {
   teacherId: string
@@ -108,9 +110,10 @@ export function RecordTeacherAttendancePage({
 
   const [initialLoading, setInitialLoading] = useState(true)
   const [teachers, setTeachers] = useState<Teacher[]>([])
-  const [holiday, setHoliday] = useState<Holiday | null>(null)
+  // const [holiday, setHoliday] = useState<Holiday | null>(null)
+  const [workingDays, setWorkingDays] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [schoolYear, setSchoolYear] = useState<string>('2025-2026')
+  const [schoolYear, setSchoolYear] = useState<string>(getCurrentSchoolYear())
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
   const [selectedGrade, setSelectedGrade] = useState<string>(gradeParam === 'all' ? ALL_GRADES : gradeParam)
 
@@ -119,11 +122,13 @@ export function RecordTeacherAttendancePage({
   const [isPending, startTransition] = useTransition()
 
   const teachersLoadedRef = useRef(false)
-  const cachedSchoolYearRef = useRef<string>('2025-2026')
+  const cachedSchoolYearRef = useRef<string>(getCurrentSchoolYear())
   const prevDateRef = useRef(selectedDate)
+  const workingDaysInitializedRef = useRef(false)
 
   const today = formatPacificDate(new Date())
   const isAllGrades = selectedGrade === ALL_GRADES
+  const calendarType = hscpOnly ? 'hscp' : 'regular'
 
   const availableGrades = useMemo(() => {
     const grades = new Set<string>()
@@ -155,20 +160,44 @@ export function RecordTeacherAttendancePage({
     setShowCommentInputs({})
   }, [selectedDate])
 
+  useEffect(() => {
+    let cancelled = false
+    const loadWorkingDays = async () => {
+      const dates = await fetchWorkingDays(schoolYear, calendarType)
+      if (cancelled) return
+      setWorkingDays(dates)
+      if (!workingDaysInitializedRef.current) {
+        workingDaysInitializedRef.current = true
+        const preferred = dateParam || pickDefaultWorkingDate(dates, today)
+        if (preferred && preferred !== selectedDate) {
+          setSelectedDate(preferred)
+        }
+      } else if (dates.length && !dates.includes(selectedDate)) {
+        const preferred = pickDefaultWorkingDate(dates, today)
+        if (preferred) setSelectedDate(preferred)
+      }
+    }
+    loadWorkingDays()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolYear, calendarType])
+
   const fetchAttendanceForDate = useCallback(
     async (date: string, currentSchoolYear: string) => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
         if (!session?.access_token) return
 
-        const { data: holidayData } = await supabase
-          .from('holidays')
-          .select('holiday_date,name')
-          .eq('school_year', currentSchoolYear)
-          .eq('holiday_date', date)
-          .maybeSingle()
-
-        setHoliday(holidayData || null)
+        // Holiday check disabled — working days allowlist is enforced in UI + API
+        // const { data: holidayData } = await supabase
+        //   .from('holidays')
+        //   .select('holiday_date,name')
+        //   .eq('school_year', currentSchoolYear)
+        //   .eq('holiday_date', date)
+        //   .maybeSingle()
+        // setHoliday(holidayData || null)
 
         const response = await fetch(`/api/teacher-attendance?date=${date}`, {
           method: 'GET',
@@ -230,13 +259,7 @@ export function RecordTeacherAttendancePage({
         const { data: { session } } = await supabase.auth.getSession()
         if (!session?.access_token) throw new Error('Not authenticated')
 
-        const { data: settings } = await supabase
-          .from('system_settings')
-          .select('current_school_year')
-          .eq('id', 1)
-          .maybeSingle()
-
-        const currentSchoolYear = settings?.current_school_year || '2025-2026'
+        const currentSchoolYear = getCurrentSchoolYear()
         setSchoolYear(currentSchoolYear)
         cachedSchoolYearRef.current = currentSchoolYear
 
@@ -308,7 +331,10 @@ export function RecordTeacherAttendancePage({
   )
 
   const handleDateChange = (newDate: string) => {
-    if (newDate > today) return
+    if (workingDays.length && !workingDays.includes(newDate)) {
+      toast.error('That date is not a working day. Choose a listed class day.')
+      return
+    }
     setSelectedDate(newDate)
   }
 
@@ -316,8 +342,25 @@ export function RecordTeacherAttendancePage({
     setSelectedGrade(grade)
   }
 
-  const locked = Boolean(holiday)
+  const isWorkingDay = workingDays.includes(selectedDate)
   const isFutureDate = selectedDate > today
+  const sortedWorkingDays = [...workingDays].sort()
+  const pickerMax =
+    sortedWorkingDays.length > 0
+      ? sortedWorkingDays[sortedWorkingDays.length - 1] > today
+        ? sortedWorkingDays[sortedWorkingDays.length - 1]
+        : today
+      : today
+  const pickerMin = sortedWorkingDays.length > 0 ? sortedWorkingDays[0] : undefined
+  const lockMessage =
+    workingDays.length === 0
+      ? `No working days uploaded for the ${calendarType === 'hscp' ? 'HSCP' : 'Regular'} calendar (${schoolYear}). Upload them under Working Days first.`
+      : !isWorkingDay
+        ? 'Selected date is not a working day. Choose a listed class day from your upload.'
+        : isFutureDate
+          ? `This is a future class day (next: ${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
+          : null
+  const locked = Boolean(lockMessage)
 
   const handleSave = () => {
     if (locked || isFutureDate) {
@@ -588,11 +631,12 @@ export function RecordTeacherAttendancePage({
 
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">School year: {schoolYear}</p>
-        {holiday && (
+        {/* Holiday messaging disabled — working days are the source of truth */}
+        {/* {holiday && (
           <p className="text-sm text-emerald-600">
             Holiday: {holiday.name}. Attendance is not required today.
           </p>
-        )}
+        )} */}
       </div>
 
       <Card className="border border-[#e5e7eb] shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition-all duration-[400ms] ease-[cubic-bezier(0.4,0,0.2,1)] hover:translate-y-[-4px] hover:shadow-[0_12px_24px_rgba(0,0,0,0.10)] hover:border-[#6366f1]">
@@ -617,12 +661,17 @@ export function RecordTeacherAttendancePage({
         <CardHeader className="px-4 pt-3 pb-1">
           <CardTitle className="text-lg mb-0 leading-none">Pick a date</CardTitle>
         </CardHeader>
-        <CardContent className="px-4 pb-4">
+        <CardContent className="px-4 pb-4 space-y-1.5">
           <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex-1 sm:max-w-[180px]">
               <DateInput
                 value={selectedDate}
-                max={today}
+                min={pickerMin}
+                max={pickerMax}
+                allowedDates={workingDays.length > 0 ? workingDays : undefined}
+                onDisallowedDate={() => {
+                  toast.error('That date is not a working day. Choose a listed class day.')
+                }}
                 onChange={(newDate) => handleDateChange(newDate)}
                 className="w-full"
               />
@@ -637,6 +686,7 @@ export function RecordTeacherAttendancePage({
               </Button>
             </div>
           </div>
+          {lockMessage && <p className="text-sm text-amber-700">{lockMessage}</p>}
         </CardContent>
       </Card>
 

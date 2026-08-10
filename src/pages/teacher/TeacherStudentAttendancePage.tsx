@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { getCurrentSchoolYear } from '@/lib/school-year'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -42,14 +43,7 @@ export default function TeacherStudentAttendancePage() {
 
     const fetchData = async () => {
       try {
-        // Get current school year
-        const { data: settings } = await supabase
-          .from('system_settings')
-          .select('current_school_year')
-          .eq('id', 1)
-          .single()
-
-        const currentYear = settings?.current_school_year ?? '2025-2026'
+        const currentYear = getCurrentSchoolYear()
         setSchoolYear(currentYear)
 
         // If studentId is provided, search for student

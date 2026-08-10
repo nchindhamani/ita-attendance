@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useRequireRole } from '@/lib/auth-client'
+import { getCurrentSchoolYear } from '@/lib/school-year'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -161,7 +162,7 @@ export default function AdminUserDetailPage() {
           .select('current_school_year')
           .eq('id', 1)
           .maybeSingle()
-        const schoolYear = settings?.current_school_year || '2025-2026'
+        const schoolYear = getCurrentSchoolYear()
 
         const { data: assignments } = await supabase
           .from('teacher_sections')

@@ -1,8 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
+import { getCurrentSchoolYear } from '@/lib/school-year'
+import { fetchWorkingDays, formatIsoAsMdY, pickDefaultWorkingDate } from '@/lib/working-days'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { OtherStaffAttendanceEditor } from '@/features/attendance/OtherStaffAttendanceEditor'
@@ -17,11 +20,6 @@ type StaffMember = {
   description: string | null
 }
 
-type Holiday = {
-  holiday_date: string
-  name: string
-}
-
 export default function PrincipalStaffAttendancePage() {
   const { profile, loading: authLoading } = useRequireActiveProfile()
   const [searchParams] = useSearchParams()
@@ -30,46 +28,39 @@ export default function PrincipalStaffAttendancePage() {
   const [initialLoading, setInitialLoading] = useState(true)
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([])
   const [existingAttendance, setExistingAttendance] = useState<Record<string, { status: AttendanceStatus; comments?: string | null }>>({})
-  const [holiday, setHoliday] = useState<Holiday | null>(null)
+  const [workingDays, setWorkingDays] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [schoolYear, setSchoolYear] = useState<string>('2025-2026')
+  const [schoolYear, setSchoolYear] = useState<string>(getCurrentSchoolYear())
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
   const staffLoadedRef = useRef(false)
   const cachedStaffRef = useRef<StaffMember[]>([])
-  const cachedSchoolYearRef = useRef<string>('2025-2026')
+  const cachedSchoolYearRef = useRef<string>(getCurrentSchoolYear())
+  const workingDaysInitializedRef = useRef(false)
 
-  // Update URL if date param is missing
-  useEffect(() => {
-    if (!dateParam) {
-      const today = formatPacificDate(new Date())
+  const today = formatPacificDate(new Date())
+
+  const syncDateInUrl = useCallback(
+    (date: string) => {
+      if (!profile?.role) return
+      const path =
+        profile.role === 'admin' ? '/admin/staff-attendance' : '/principal/staff-attendance'
       const newSearchParams = new URLSearchParams(searchParams)
-      newSearchParams.set('date', today)
-      const basePath = profile?.role === 'admin' ? '/admin/staff-attendance' : '/principal/staff-attendance'
-      navigate(`${basePath}?${newSearchParams.toString()}`, { replace: true })
-    }
-  }, [dateParam, searchParams, navigate, profile])
+      newSearchParams.set('date', date)
+      navigate(`${path}?${newSearchParams.toString()}`, { replace: true })
+    },
+    [searchParams, navigate, profile?.role]
+  )
 
   // Fetch attendance data for a given date (reusable)
-  const fetchAttendanceForDate = useCallback(async (date: string, currentSchoolYear: string) => {
+  const fetchAttendanceForDate = useCallback(async (date: string, _currentSchoolYear: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) return
 
-      // Check for holiday
-      const { data: holidayData } = await supabase
-        .from('holidays')
-        .select('holiday_date,name')
-        .eq('school_year', currentSchoolYear)
-        .eq('holiday_date', date)
-        .maybeSingle()
-
-      setHoliday(holidayData || null)
-
-      // Fetch existing attendance for selected date using API endpoint
       const response = await fetch(`/api/other-staff-attendance?date=${date}`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
       })
@@ -79,7 +70,7 @@ export default function PrincipalStaffAttendancePage() {
         setExistingAttendance({})
       } else {
         const data = await response.json()
-        
+
         if (data.attendance && Array.isArray(data.attendance) && data.attendance.length > 0) {
           const existing = data.attendance.reduce(
             (acc: Record<string, { status: AttendanceStatus; comments?: string | null }>, entry: any) => {
@@ -103,7 +94,40 @@ export default function PrincipalStaffAttendancePage() {
     }
   }, [])
 
-  // Initial load: fetch staff and school year (only once)
+  // Load working days (must be before any conditional returns — Rules of Hooks)
+  useEffect(() => {
+    let cancelled = false
+    const loadWorkingDays = async () => {
+      const dates = await fetchWorkingDays(schoolYear, 'regular')
+      if (cancelled) return
+      setWorkingDays(dates)
+      if (!workingDaysInitializedRef.current) {
+        workingDaysInitializedRef.current = true
+        const preferred = dateParam || pickDefaultWorkingDate(dates, today)
+        if (preferred && preferred !== selectedDate) {
+          setSelectedDate(preferred)
+          syncDateInUrl(preferred)
+        } else if (!dateParam && preferred) {
+          syncDateInUrl(preferred)
+        } else if (!dateParam) {
+          syncDateInUrl(selectedDate)
+        }
+      } else if (dates.length && !dates.includes(selectedDate)) {
+        const preferred = pickDefaultWorkingDate(dates, today)
+        if (preferred) {
+          setSelectedDate(preferred)
+          syncDateInUrl(preferred)
+        }
+      }
+    }
+    void loadWorkingDays()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolYear])
+
+  // Initial load: fetch staff once
   useEffect(() => {
     if (authLoading || !profile) return
     if (staffLoadedRef.current) return
@@ -118,22 +142,14 @@ export default function PrincipalStaffAttendancePage() {
           throw new Error('Not authenticated')
         }
 
-        // Get current school year from settings
-        const { data: settings } = await supabase
-          .from('system_settings')
-          .select('current_school_year')
-          .eq('id', 1)
-          .maybeSingle()
-
-        const currentSchoolYear = settings?.current_school_year || '2025-2026'
+        const currentSchoolYear = getCurrentSchoolYear()
         setSchoolYear(currentSchoolYear)
         cachedSchoolYearRef.current = currentSchoolYear
 
-        // Fetch all users from backend API
         const response = await fetch('/api/admin/users', {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${session.access_token}`,
             'Content-Type': 'application/json',
           },
         })
@@ -146,13 +162,14 @@ export default function PrincipalStaffAttendancePage() {
         const data = await response.json()
         const allUsers = data.users || []
 
-        // Filter: non-teacher, non-principal, approved, active staff
         const otherStaff = allUsers
           .filter((user: any) => {
-            return user.is_approved && 
-                   user.is_active &&
-                   user.role !== 'teacher' && 
-                   user.role !== 'principal'
+            return (
+              user.is_approved &&
+              user.is_active &&
+              user.role !== 'teacher' &&
+              user.role !== 'principal'
+            )
           })
           .map((user: any) => ({
             id: user.id,
@@ -166,7 +183,6 @@ export default function PrincipalStaffAttendancePage() {
         cachedStaffRef.current = otherStaff
         staffLoadedRef.current = true
 
-        // Fetch attendance for the initial date
         if (otherStaff.length > 0) {
           await fetchAttendanceForDate(selectedDate, currentSchoolYear)
         }
@@ -177,16 +193,44 @@ export default function PrincipalStaffAttendancePage() {
       }
     }
 
-    fetchInitialData()
-  }, [profile, authLoading, selectedDate, fetchAttendanceForDate])
+    void fetchInitialData()
+    // Intentionally omit selectedDate — date changes are handled below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, authLoading, fetchAttendanceForDate])
 
-  // When date changes after initial load, only re-fetch attendance (not staff)
+  // When date changes after initial load, only re-fetch attendance
   useEffect(() => {
     if (!staffLoadedRef.current) return
     if (cachedStaffRef.current.length === 0) return
 
-    fetchAttendanceForDate(selectedDate, cachedSchoolYearRef.current)
+    void fetchAttendanceForDate(selectedDate, cachedSchoolYearRef.current)
   }, [selectedDate, fetchAttendanceForDate])
+
+  const isFutureDate = selectedDate > today
+  const isWorkingDay = workingDays.includes(selectedDate)
+  const lockMessage =
+    workingDays.length === 0
+      ? `No working days uploaded for the Regular calendar (${schoolYear}). Upload them under Working Days first.`
+      : !isWorkingDay
+        ? 'Selected date is not a working day. Choose a listed class day from your upload.'
+        : isFutureDate
+          ? `This is a future class day (next: ${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
+          : null
+  const locked = Boolean(lockMessage)
+
+  const handleDateChange = (newDate: string) => {
+    if (workingDays.length && !workingDays.includes(newDate)) {
+      toast.error('That date is not a working day. Choose a listed class day.')
+      return
+    }
+    setSelectedDate(newDate)
+    syncDateInUrl(newDate)
+  }
+
+  const refreshAttendance = async () => {
+    if (staffMembers.length === 0) return
+    await fetchAttendanceForDate(selectedDate, schoolYear)
+  }
 
   if (authLoading || initialLoading) {
     return (
@@ -209,26 +253,7 @@ export default function PrincipalStaffAttendancePage() {
     )
   }
 
-  const locked = Boolean(holiday)
-  
-  const today = formatPacificDate(new Date())
-  const isFutureDate = selectedDate > today
-
-  const handleDateChange = (newDate: string) => {
-    if (newDate > today) return
-    setSelectedDate(newDate)
-    const newSearchParams = new URLSearchParams(searchParams)
-    newSearchParams.set('date', newDate)
-    const basePath = profile?.role === 'admin' ? '/admin/staff-attendance' : '/principal/staff-attendance'
-    navigate(`${basePath}?${newSearchParams.toString()}`, { replace: true })
-  }
-
-  const refreshAttendance = async () => {
-    if (staffMembers.length === 0) return
-    await fetchAttendanceForDate(selectedDate, schoolYear)
-  }
-
-  if (staffMembers.length === 0 && !initialLoading) {
+  if (staffMembers.length === 0) {
     return (
       <div className="space-y-3">
         <div>
@@ -260,7 +285,9 @@ export default function PrincipalStaffAttendancePage() {
         staffMembers={staffMembers}
         existing={existingAttendance}
         locked={locked || isFutureDate}
-        holidayName={holiday?.name ?? null}
+        holidayName={null}
+        lockMessage={lockMessage}
+        allowedDates={workingDays}
         schoolYearDisplay={schoolYear}
         onAttendanceSaved={refreshAttendance}
         onDateChange={handleDateChange}
@@ -268,4 +295,3 @@ export default function PrincipalStaffAttendancePage() {
     </div>
   )
 }
-

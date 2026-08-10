@@ -3,6 +3,8 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useRequireRole } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
+import { getCurrentSchoolYear } from '@/lib/school-year'
+import { useWorkingDays } from '@/lib/use-working-days'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -56,7 +58,7 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
   const [availableGrades, setAvailableGrades] = useState<string[]>([])
   const [selectedGrade, setSelectedGrade] = useState<string>(gradeParam)
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
-  const [schoolYear, setSchoolYear] = useState<string>('2025-2026')
+  const [schoolYear, setSchoolYear] = useState<string>(getCurrentSchoolYear())
 
   // For single-grade view
   const [sections, setSections] = useState<HSCPSection[]>([])
@@ -72,18 +74,20 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
   const today = formatPacificDate(new Date())
   const isAllGrades = selectedGrade === ALL_GRADES
 
+  const { workingDays, pickerMin, pickerMax } = useWorkingDays({
+    schoolYear,
+    scope: { mode: 'type', calendarType: 'hscp' },
+    selectedDate,
+    dateParam,
+    onDateResolved: (iso) => setSelectedDate(iso),
+  })
+
   // Fetch available HSCP grades on mount
   useEffect(() => {
     const fetchGrades = async () => {
       setLoading(true)
       try {
-        const { data: settings } = await supabase
-          .from('system_settings')
-          .select('current_school_year')
-          .eq('id', 1)
-          .maybeSingle()
-
-        const currentSchoolYear = settings?.current_school_year || '2025-2026'
+        const currentSchoolYear = getCurrentSchoolYear()
         setSchoolYear(currentSchoolYear)
 
         const { data: sectionsData, error } = await supabase
@@ -359,7 +363,10 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
 
   // ─── HANDLERS ────────────────────────────────────────────────
   const handleDateChange = (newDate: string) => {
-    if (newDate > today) return
+    if (workingDays.length && !workingDays.includes(newDate)) {
+      toast.error('That date is not a working day. Choose a listed class day.')
+      return
+    }
     setSelectedDate(newDate)
   }
 
@@ -577,7 +584,12 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
             <div className="flex-1 sm:max-w-[180px]">
               <DateInput
                 value={selectedDate}
-                max={today}
+                min={pickerMin}
+                max={pickerMax}
+                allowedDates={workingDays.length > 0 ? workingDays : undefined}
+                onDisallowedDate={() => {
+                  toast.error('That date is not a working day. Choose a listed class day.')
+                }}
                 onChange={(newDate) => handleDateChange(newDate)}
                 className="w-full"
               />

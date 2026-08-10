@@ -12,7 +12,7 @@ export default function DashboardPage() {
     // Redirect based on role
     switch (profile.role) {
       case 'admin':
-        navigate('/admin', { replace: true })
+        navigate('/admin/users', { replace: true })
         break
       case 'principal':
         navigate('/principal', { replace: true })

@@ -5,6 +5,7 @@ import {
   LayoutDashboard, 
   Users, 
   Calendar, 
+  CalendarDays,
   Search, 
   Archive, 
   User,
@@ -17,6 +18,7 @@ import {
   HandHeart,
   UserPlus,
   LogOut,
+  School,
 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -42,6 +44,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "Attendance": Calendar,
   "History": Calendar,
   "Student Lookup": Search,
+  "Student Management": Search,
   "Archive": Archive,
   "Profile": User,
   // HSCP Officer
@@ -49,7 +52,10 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "Record Teacher Attendance": ClipboardCheck,
   "HSCP Teacher Management": UserCog,
   "Record Student Attendance": PenSquare,
-  "HSCP Student Lookup": Search,
+  "HSCP Student Management": Search,
+  "Working Days": CalendarDays,
+  "Classroom Management": School,
+  // PREVIOUS: "HSCP Student Lookup": Search,
   // Attendance Officer
   "View Attendance": Eye,
   "Teacher Management": UserCog,
@@ -69,6 +75,7 @@ const labelMap: Record<string, string> = {
   "Attendance": "Attendance",
   "History": "History",
   "Student Lookup": "Lookup",
+  "Student Management": "Stu Mgmt",
   "Archive": "Archive",
   "Profile": "Profile",
   // HSCP Officer
@@ -76,7 +83,10 @@ const labelMap: Record<string, string> = {
   "Record Teacher Attendance": "Rec Tchr Att.",
   "HSCP Teacher Management": "Tchr Mgmt",
   "Record Student Attendance": "Rec Stu Att.",
-  "HSCP Student Lookup": "Stu Lookup",
+  "HSCP Student Management": "Stu Mgmt",
+  "Working Days": "Work Days",
+  "Classroom Management": "Classrooms",
+  // PREVIOUS: "HSCP Student Lookup": "Stu Lookup",
   // Attendance Officer
   "View Attendance": "View Att.",
   "Teacher Management": "Tchr Mgmt",

@@ -44,7 +44,7 @@ export default function HSCPOfficerPage() {
         <Link to="/hscp-officer/student-attendance">
           <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
-              <CardTitle>HSCP Student Lookup</CardTitle>
+              <CardTitle>HSCP Student Management</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">

@@ -12,10 +12,11 @@ import hmac
 import hashlib
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import Optional, List
 from functools import lru_cache
 from pathlib import Path
+import re
 
 # Configure logging for Vercel (must be before dotenv so we can log)
 # Vercel captures stdout/stderr, so we configure logging to write to stderr
@@ -529,6 +530,33 @@ def capitalize_name(name: str) -> str:
     
     return " ".join(result)
 
+def get_current_school_year(now: Optional[datetime] = None) -> str:
+    """
+    ITA school year runs August–May (America/Los_Angeles).
+
+    Examples:
+      - Aug 2026 – May 2027  →  "2026-2027"
+      - Jun/Jul 2027         →  "2026-2027" (summer until next August)
+      - Aug 2027             →  "2027-2028"
+
+    This is the source of truth for the current school year.
+    Do not fall back to a hardcoded year (e.g. 2025-2026) or rely on
+    system_settings.current_school_year for "current" operations.
+    """
+    pacific = pytz.timezone("America/Los_Angeles")
+    if now is None:
+        now = datetime.now(pacific)
+    elif now.tzinfo is None:
+        now = pacific.localize(now)
+    else:
+        now = now.astimezone(pacific)
+
+    year = now.year
+    month = now.month
+    if month >= 8:
+        return f"{year}-{year + 1}"
+    return f"{year - 1}-{year}"
+
 def is_hscp_grade(grade: str) -> bool:
     """
     Check if a grade is an HSCP grade.
@@ -537,6 +565,78 @@ def is_hscp_grade(grade: str) -> bool:
         return False
     grade_upper = str(grade).strip().upper()
     return grade_upper.startswith("HSCP")
+
+def get_calendar_type_for_grade(grade: Optional[str]) -> str:
+    """Map a grade to working-days calendar: hscp vs regular."""
+    return "hscp" if is_hscp_grade(grade or "") else "regular"
+
+def get_school_year_for_date(d: date) -> str:
+    """School year for a calendar date (Aug–May rule)."""
+    if d.month >= 8:
+        return f"{d.year}-{d.year + 1}"
+    return f"{d.year - 1}-{d.year}"
+
+def parse_mdy_date(value: str) -> Optional[date]:
+    """Parse MM/DD/YYYY or M/D/YYYY into a date, or None if invalid."""
+    if not value:
+        return None
+    trimmed = str(value).strip()
+    match = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", trimmed)
+    if not match:
+        return None
+    month, day, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+def assert_is_working_day(
+    admin_supabase,
+    attendance_date: str,
+    school_year: str,
+    calendar_type: str,
+) -> Optional[JSONResponse]:
+    """
+    Enforce working-days allowlist. Returns a JSONResponse error if not allowed,
+    otherwise None.
+    """
+    calendar_type = (calendar_type or "").strip().lower()
+    if calendar_type not in ("hscp", "regular"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid calendar type. Use 'hscp' or 'regular'."},
+        )
+
+    try:
+        response = (
+            admin_supabase.table("working_days")
+            .select("id")
+            .eq("school_year", school_year)
+            .eq("calendar_type", calendar_type)
+            .eq("work_date", attendance_date)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as e:
+        log_error(f"working_days lookup failed: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to verify working day: {str(e)}"},
+        )
+
+    if response and hasattr(response, "data") and response.data:
+        return None
+
+    label = "HSCP" if calendar_type == "hscp" else "Regular"
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": (
+                f"{attendance_date} is not a working day for the {label} calendar "
+                f"({school_year}). Upload working days first, or pick a listed date."
+            )
+        },
+    )
 
 def normalize_hscp_grade(grade: str) -> str:
     """
@@ -570,6 +670,15 @@ def normalize_hscp_grade(grade: str) -> str:
     
     # If not HSCP format, return as-is (for regular grades like "1", "2", etc.)
     return grade
+
+def normalize_grade_for_roster(grade: str) -> str:
+    """Normalize grade for roster upload: HSCP* → HSCP-N, else trimmed original."""
+    if not grade:
+        return grade
+    raw = grade.strip()
+    if is_hscp_grade(raw):
+        return normalize_hscp_grade(raw)
+    return raw
 
 def generate_temporary_password(length: int = 12) -> str:
     """
@@ -763,6 +872,69 @@ class BulkAddStudentsResponse(BaseModel):
     success: Optional[str] = None
     error: Optional[str] = None
 
+class BulkHSCPStudentItem(BaseModel):
+    studentIdentifier: str
+    fullName: str
+    grade: str  # HSCP1, HSCP2, HSCP3 (or HSCP-1, etc.)
+
+class BulkAddHSCPStudentsRequest(BaseModel):
+    schoolYear: Optional[str] = None
+    students: list[BulkHSCPStudentItem]
+
+class BulkAddHSCPStudentsResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+    addedCount: Optional[int] = None
+
+class BulkWorkingDaysRequest(BaseModel):
+    calendarType: str  # 'hscp' | 'regular'
+    dates: list[str]  # MM/DD/YYYY strings from one-column CSV
+
+class BulkWorkingDaysResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+    addedCount: Optional[int] = None
+    schoolYears: Optional[List[str]] = None
+
+class ClassroomItem(BaseModel):
+    grade: str
+    section: Optional[str] = None
+    roomNumber: Optional[str] = None
+
+class CreateClassroomRequest(BaseModel):
+    grade: str
+    section: Optional[str] = None
+    roomNumber: Optional[str] = None
+
+class BulkCreateClassroomsRequest(BaseModel):
+    classrooms: list[ClassroomItem]
+
+class UpdateClassroomRoomRequest(BaseModel):
+    roomNumber: Optional[str] = None
+
+class DeleteClassroomRequest(BaseModel):
+    moveAttendanceToSectionId: Optional[str] = None
+    confirmTeachers: Optional[bool] = False
+
+HSCP_CLASSROOM_SECTIONS = ["Conversation", "Reading", "Writing"]
+
+class AddStudentByGradeRequest(BaseModel):
+    grade: str
+    studentIdentifier: str
+    fullName: str
+    section: Optional[str] = None  # required for non-HSCP grades; optional for HSCP
+    schoolYear: Optional[str] = None
+
+class BulkStudentByGradeItem(BaseModel):
+    studentIdentifier: str
+    fullName: str
+    grade: str
+    section: Optional[str] = None  # required for non-HSCP grades; optional/empty for HSCP
+
+class BulkAddStudentsByGradeRequest(BaseModel):
+    schoolYear: Optional[str] = None
+    students: list[BulkStudentByGradeItem]
+
 class UpdateStudentRequest(BaseModel):
     studentId: str
     studentIdentifier: str
@@ -943,61 +1115,23 @@ async def save_attendance(
         admin_supabase = get_supabase_admin_client()
         logger.info("Supabase clients initialized successfully")
         
-        # Check if date is a holiday
-        # Use admin client directly since holidays are public data and we want to avoid RLS issues
-        log_info("Checking for holidays...")
-        log_info(f"Holiday query - school_year: {payload.schoolYear}, date: {payload.attendanceDate}")
-        log_info(f"Using admin client for holiday query (bypasses RLS)")
-        
-        # Use admin client directly (bypasses RLS)
-        try:
-            holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
-                "school_year", payload.schoolYear
-            ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
-            
-            log_info(f"Holiday query - response type: {type(holiday_response)}")
-            log_info(f"Holiday query - response: {holiday_response}")
-            if holiday_response is not None:
-                log_info(f"Holiday query - hasattr(response, 'data'): {hasattr(holiday_response, 'data')}")
-                if hasattr(holiday_response, 'data'):
-                    log_info(f"Holiday query - response.data: {holiday_response.data}")
-                log_info(f"Holiday query - hasattr(response, 'error'): {hasattr(holiday_response, 'error')}")
-                if hasattr(holiday_response, 'error'):
-                    log_info(f"Holiday query - response.error: {holiday_response.error}")
-        except Exception as e:
-            log_error(f"Exception during holiday query: {str(e)}")
-            log_error(f"Traceback: {traceback.format_exc()}")
-            raise HTTPException(status_code=500, detail=f"Exception during holiday query: {str(e)}")
-        
-        if holiday_response is None:
-            error_detail = f"Supabase returned None for holiday query even with admin client. This might mean the query failed or the table doesn't exist."
-            log_error(error_detail)
-            # Don't fail - just log and continue (holiday check is optional)
-            log_warning("Continuing without holiday check - assuming date is not a holiday")
-            holiday_response = type('obj', (object,), {'data': None})()  # Create empty response object
-        
-        if hasattr(holiday_response, 'error') and holiday_response.error:
-            error = holiday_response.error
-            error_message = getattr(error, 'message', str(error)) if error else str(error)
-            error_code = getattr(error, 'code', None) if hasattr(error, 'code') else None
-            error_hint = getattr(error, 'hint', None) if hasattr(error, 'hint') else None
-            
-            log_error(f"Supabase error in holiday query:")
-            log_error(f"  - Error message: {error_message}")
-            log_error(f"  - Error code: {error_code}")
-            log_error(f"  - Error hint: {error_hint}")
-            log_error(f"  - Full error object: {error}")
-            
-            raise HTTPException(
-                status_code=500,
-                detail=f"Supabase error: {error_message} (code: {error_code}, hint: {error_hint})"
-            )
-        
-        if hasattr(holiday_response, 'data') and holiday_response.data:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "This date is marked as a holiday."}
-            )
+        # --- Holiday check disabled: working_days is now the allowlist source of truth ---
+        # # Check if date is a holiday
+        # # Use admin client directly since holidays are public data and we want to avoid RLS issues
+        # log_info("Checking for holidays...")
+        # log_info(f"Holiday query - school_year: {payload.schoolYear}, date: {payload.attendanceDate}")
+        # log_info(f"Using admin client for holiday query (bypasses RLS)")
+        #
+        # try:
+        #     holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
+        #         "school_year", payload.schoolYear
+        #     ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
+        #     ...
+        # if hasattr(holiday_response, 'data') and holiday_response.data:
+        #     return JSONResponse(
+        #         status_code=400,
+        #         content={"error": "This date is marked as a holiday."}
+        #     )
         
         # Get student data
         logger.info("Fetching student data...")
@@ -1028,10 +1162,21 @@ async def save_attendance(
         # Get the section info to check if it's HSCP
         section_info_response = admin_supabase.table("sections").select("grade,section").eq("id", payload.sectionId).maybe_single().execute()
         is_hscp_section = False
+        section_grade = ""
         if section_info_response and hasattr(section_info_response, 'data') and section_info_response.data:
-            section_grade = section_info_response.data.get("grade", "")
+            section_grade = section_info_response.data.get("grade", "") or ""
             if section_grade and str(section_grade).upper().startswith("HSCP"):
                 is_hscp_section = True
+
+        # Enforce working-days allowlist (HSCP vs Regular calendar)
+        working_day_error = assert_is_working_day(
+            admin_supabase,
+            payload.attendanceDate,
+            payload.schoolYear,
+            get_calendar_type_for_grade(section_grade),
+        )
+        if working_day_error:
+            return working_day_error
         
         # Create student map
         student_map = {row["id"]: row for row in students_response.data}
@@ -1129,16 +1274,15 @@ async def save_teacher_attendance(
         supabase = get_supabase_client(access_token=access_token)
         admin_supabase = get_supabase_admin_client()
         
-        # Check if date is a holiday
-        holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
-            "school_year", payload.schoolYear
-        ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
-        
-        if holiday_response and hasattr(holiday_response, 'data') and holiday_response.data:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "This date is marked as a holiday."}
-            )
+        # --- Holiday check disabled: working_days is now the allowlist source of truth ---
+        # holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
+        #     "school_year", payload.schoolYear
+        # ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
+        # if holiday_response and hasattr(holiday_response, 'data') and holiday_response.data:
+        #     return JSONResponse(
+        #         status_code=400,
+        #         content={"error": "This date is marked as a holiday."}
+        #     )
         
         # Get teacher data and validate they are HSCP teachers (for HSCP officers)
         teacher_ids = [entry.teacherId for entry in payload.entries]
@@ -1172,6 +1316,22 @@ async def save_teacher_attendance(
                         status_code=403,
                         detail=f"Only teachers can have attendance recorded. {teacher.get('full_name')} is not a teacher."
                     )
+
+        # Enforce working-days allowlist per teacher grade calendar
+        checked_calendars = set()
+        for teacher in teachers_data:
+            cal = get_calendar_type_for_grade(teacher.get("grade"))
+            if cal in checked_calendars:
+                continue
+            checked_calendars.add(cal)
+            working_day_error = assert_is_working_day(
+                admin_supabase,
+                payload.attendanceDate,
+                payload.schoolYear,
+                cal,
+            )
+            if working_day_error:
+                return working_day_error
         
         # Create teacher map
         teacher_map = {row["id"]: row for row in teachers_data}
@@ -1329,16 +1489,25 @@ async def save_other_staff_attendance(
         
         admin_supabase = get_supabase_admin_client()
         
-        # Check if date is a holiday
-        holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
-            "school_year", payload.schoolYear
-        ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
-        
-        if holiday_response and hasattr(holiday_response, 'data') and holiday_response.data:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "This date is marked as a holiday."}
-            )
+        # --- Holiday check disabled: working_days is now the allowlist source of truth ---
+        # holiday_response = admin_supabase.table("holidays").select("holiday_date").eq(
+        #     "school_year", payload.schoolYear
+        # ).eq("holiday_date", payload.attendanceDate).maybe_single().execute()
+        # if holiday_response and hasattr(holiday_response, 'data') and holiday_response.data:
+        #     return JSONResponse(
+        #         status_code=400,
+        #         content={"error": "This date is marked as a holiday."}
+        #     )
+
+        # Volunteer/staff attendance uses the Regular grades calendar
+        working_day_error = assert_is_working_day(
+            admin_supabase,
+            payload.attendanceDate,
+            payload.schoolYear,
+            "regular",
+        )
+        if working_day_error:
+            return working_day_error
         
         # Get staff data and validate they are non-teacher, non-principal
         staff_ids = [entry.staffId for entry in payload.entries]
@@ -1788,14 +1957,8 @@ async def add_hscp_student(
 
         admin_supabase = get_supabase_admin_client()
 
-        # Get current school year
-        school_year = payload.schoolYear
-        if not school_year:
-            settings_response = admin_supabase.table("system_settings").select("current_school_year").eq("id", 1).maybe_single().execute()
-            if settings_response and hasattr(settings_response, 'data') and settings_response.data:
-                school_year = settings_response.data.get("current_school_year", "2025-2026")
-            else:
-                school_year = "2025-2026"
+        # Always derive current school year from Pacific calendar (Aug–May)
+        school_year = get_current_school_year()
 
         # Find all sections for this HSCP grade
         sections_response = admin_supabase.table("sections").select("id,section").eq("grade", normalized_grade).eq("school_year", school_year).order("section", desc=False).execute()
@@ -1940,6 +2103,760 @@ async def add_hscp_student(
             content={"error": f"Failed to add HSCP student: {str(e)}"}
         )
 
+ALLOWED_BULK_HSCP_GRADES = {"HSCP-1", "HSCP-2", "HSCP-3"}
+
+@api_router.post("/hscp-students/bulk", response_model=BulkAddHSCPStudentsResponse)
+async def bulk_add_hscp_students(
+    payload: BulkAddHSCPStudentsRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Bulk-add HSCP students from CSV upload.
+    Each row provides Student ID, Student Name, and Grade (HSCP1/HSCP2/HSCP3).
+    Only HSCP officers and admins can use this endpoint.
+    """
+    try:
+        current_role = profile.get("role")
+        if current_role not in ["hscp_officer", "admin"]:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Only HSCP officers and admins can bulk-upload HSCP students."}
+            )
+
+        if not payload.students:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No students provided."}
+            )
+
+        admin_supabase = get_supabase_admin_client()
+
+        # Always derive current school year from Pacific calendar (Aug–May)
+        school_year = get_current_school_year()
+
+        log_info(f"bulk_add_hscp_students called - schoolYear: {school_year}, studentCount: {len(payload.students)}")
+
+        # Validate and normalize rows
+        records = []
+        invalid_grades = []
+        invalid_ids = []
+        for idx, student in enumerate(payload.students, start=1):
+            raw_grade = (student.grade or "").strip()
+            normalized_grade = normalize_hscp_grade(raw_grade) if raw_grade else ""
+            if normalized_grade not in ALLOWED_BULK_HSCP_GRADES:
+                invalid_grades.append(f"row {idx}: '{raw_grade or '(empty)'}'")
+                continue
+
+            try:
+                student_identifier = int(str(student.studentIdentifier).strip())
+            except (ValueError, AttributeError):
+                invalid_ids.append(f"row {idx}: '{student.studentIdentifier}'")
+                continue
+
+            full_name = (student.fullName or "").strip()
+            if not full_name:
+                continue
+
+            records.append({
+                "student_identifier": student_identifier,
+                "full_name": capitalize_name(full_name),
+                "grade": normalized_grade,
+                "school_year": school_year,
+            })
+
+        if invalid_grades:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        f"Invalid grade(s). Only HSCP1, HSCP2, or HSCP3 are allowed. "
+                        f"Problem rows: {', '.join(invalid_grades[:10])}"
+                        + ("..." if len(invalid_grades) > 10 else "")
+                    )
+                }
+            )
+
+        if invalid_ids:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        f"Student ID must be a number. "
+                        f"Problem rows: {', '.join(invalid_ids[:10])}"
+                        + ("..." if len(invalid_ids) > 10 else "")
+                    )
+                }
+            )
+
+        if not records:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No valid student rows found in CSV."}
+            )
+
+        # Duplicate IDs within the CSV
+        identifier_counts: dict = {}
+        for record in records:
+            sid = record["student_identifier"]
+            identifier_counts[sid] = identifier_counts.get(sid, 0) + 1
+        duplicates_in_csv = [sid for sid, count in identifier_counts.items() if count > 1]
+        if duplicates_in_csv:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        f"Duplicate student IDs found in CSV: "
+                        f"{', '.join(map(str, duplicates_in_csv[:20]))}. "
+                        f"Each student ID must be unique."
+                    )
+                }
+            )
+
+        # Existing IDs in the database
+        identifiers_to_check = [r["student_identifier"] for r in records]
+        existing_response = admin_supabase.table("students").select(
+            "student_identifier,full_name,section_id,sections(grade,section)"
+        ).in_("student_identifier", identifiers_to_check).execute()
+
+        if existing_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for existing students query")
+        if hasattr(existing_response, 'error') and existing_response.error:
+            error = existing_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            raise HTTPException(status_code=500, detail=f"Supabase error: {error_message}")
+
+        existing_students = existing_response.data if hasattr(existing_response, 'data') and existing_response.data else []
+        if existing_students:
+            duplicates = []
+            for s in existing_students:
+                section_info = s.get("sections")
+                if isinstance(section_info, list) and len(section_info) > 0:
+                    section_info = section_info[0]
+                elif not section_info:
+                    section_info = None
+                if section_info:
+                    section_display = f"Grade {section_info.get('grade')} {section_info.get('section')}"
+                else:
+                    section_display = "another class"
+                duplicates.append(f"ID {s.get('student_identifier')} ({s.get('full_name')} - {section_display})")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        f"The following student IDs already exist: {', '.join(duplicates)}. "
+                        f"Each student ID must be unique across all classes."
+                    )
+                }
+            )
+
+        # Resolve primary section_id per grade used in the CSV
+        grades_needed = sorted({r["grade"] for r in records})
+        grade_to_primary_section: dict = {}
+        grade_to_all_sections: dict = {}
+
+        for grade in grades_needed:
+            sections_response = admin_supabase.table("sections").select(
+                "id,section"
+            ).eq("grade", grade).eq("school_year", school_year).order("section", desc=False).execute()
+
+            if not sections_response or not hasattr(sections_response, 'data') or not sections_response.data:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": (
+                            f"No sections found for grade {grade} in school year {school_year}. "
+                            f"Please ensure Reading, Writing, and Conversation sections exist first."
+                        )
+                    }
+                )
+            grade_sections = sections_response.data
+            grade_to_primary_section[grade] = grade_sections[0].get("id")
+            grade_to_all_sections[grade] = [s.get("id") for s in grade_sections if s.get("id")]
+
+        insert_records = []
+        for record in records:
+            insert_records.append({
+                "student_identifier": record["student_identifier"],
+                "full_name": record["full_name"],
+                "section_id": grade_to_primary_section[record["grade"]],
+                "school_year": school_year,
+            })
+
+        insert_response = admin_supabase.table("students").insert(insert_records).execute()
+
+        if insert_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for students insert")
+        if hasattr(insert_response, 'error') and insert_response.error:
+            error = insert_response.error
+            error_message = getattr(error, 'message', str(error)) if error else str(error)
+            raise HTTPException(status_code=500, detail=f"Unable to upload roster: {error_message}")
+
+        inserted_students = insert_response.data if hasattr(insert_response, 'data') and insert_response.data else []
+
+        # Map inserted students back to grades for backfill
+        id_to_grade = {r["student_identifier"]: r["grade"] for r in records}
+
+        # Collect attendance dates per section across all involved grades
+        all_section_ids = []
+        for grade in grades_needed:
+            all_section_ids.extend(grade_to_all_sections.get(grade, []))
+        all_section_ids = list(dict.fromkeys(all_section_ids))
+
+        section_dates_map: dict = {}
+        all_unique_dates = set()
+        for section_id_to_check in all_section_ids:
+            attendance_dates_response = admin_supabase.table("student_attendance").select(
+                "attendance_date"
+            ).eq("section_id", section_id_to_check).execute()
+            if attendance_dates_response and hasattr(attendance_dates_response, 'data') and attendance_dates_response.data:
+                dates_for_section = set(
+                    row.get("attendance_date")
+                    for row in attendance_dates_response.data
+                    if row.get("attendance_date")
+                )
+                section_dates_map[section_id_to_check] = dates_for_section
+                all_unique_dates.update(dates_for_section)
+
+        if all_unique_dates and inserted_students:
+            holidays_response = admin_supabase.table("holidays").select(
+                "holiday_date"
+            ).eq("school_year", school_year).in_("holiday_date", list(all_unique_dates)).execute()
+
+            holiday_set = set()
+            if holidays_response and hasattr(holidays_response, 'data') and holidays_response.data:
+                holiday_set = set(
+                    row.get("holiday_date")
+                    for row in holidays_response.data
+                    if row.get("holiday_date")
+                )
+
+            backfill_records = []
+            for student in inserted_students:
+                student_id = student.get("id")
+                student_identifier = student.get("student_identifier")
+                if not student_id or student_identifier is None:
+                    continue
+                grade = id_to_grade.get(student_identifier)
+                sections_to_check = grade_to_all_sections.get(grade, []) if grade else []
+                for section_id_to_check in sections_to_check:
+                    dates_for_section = section_dates_map.get(section_id_to_check, set())
+                    for date in dates_for_section:
+                        if date not in holiday_set:
+                            backfill_records.append({
+                                "student_id": student_id,
+                                "student_identifier": student_identifier,
+                                "section_id": section_id_to_check,
+                                "recorded_by": profile.get("id"),
+                                "attendance_date": date,
+                                "status": "absent",
+                                "comments": None,
+                                "school_year": school_year,
+                            })
+
+            if backfill_records:
+                log_info(
+                    f"Backfilling attendance for {len(backfill_records)} records "
+                    f"for {len(inserted_students)} HSCP student(s)"
+                )
+                backfill_response = admin_supabase.table("student_attendance").upsert(
+                    backfill_records,
+                    on_conflict="student_id,attendance_date,section_id"
+                ).execute()
+                if backfill_response and hasattr(backfill_response, 'error') and backfill_response.error:
+                    log_warning(f"Warning: Error backfilling attendance: {backfill_response.error}")
+
+        added_count = len(inserted_students)
+        log_info(f"Bulk add HSCP students successful: {added_count} students added")
+        return {
+            "success": f"{added_count} HSCP student(s) uploaded successfully.",
+            "addedCount": added_count,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in bulk_add_hscp_students: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to upload HSCP roster: {str(e)}"}
+        )
+
+@api_router.post("/students/by-grade", response_model=AddStudentResponse)
+async def add_student_by_grade(
+    payload: AddStudentByGradeRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Admin: add a single student by grade for the current school year.
+    - HSCP grades: section optional (defaults to first section of the grade)
+    - All other grades: section is required (no defaulting)
+    """
+    try:
+        if profile.get("role") != "admin":
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Only admins can add students by grade for any grade."}
+            )
+
+        school_year = get_current_school_year()
+        normalized_grade = normalize_grade_for_roster(payload.grade)
+        if not normalized_grade:
+            return JSONResponse(status_code=400, content={"error": "Grade is required."})
+
+        section_raw = (payload.section or "").strip()
+        if not is_hscp_grade(normalized_grade) and not section_raw:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Section is required for non-HSCP grades."}
+            )
+
+        try:
+            student_identifier = int(str(payload.studentIdentifier).strip())
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": "Student ID must be a number."})
+
+        admin_supabase = get_supabase_admin_client()
+        sections_response = admin_supabase.table("sections").select(
+            "id,section"
+        ).eq("grade", normalized_grade).eq("school_year", school_year).order("section", desc=False).execute()
+
+        if not sections_response or not hasattr(sections_response, 'data') or not sections_response.data:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "error": (
+                        f"No sections found for grade {normalized_grade} in school year {school_year}. "
+                        f"Please create sections for this grade first."
+                    )
+                }
+            )
+
+        grade_sections = sections_response.data
+        primary_section_id = None
+        if is_hscp_grade(normalized_grade):
+            if section_raw:
+                wanted = capitalize_section(section_raw)
+                match = next(
+                    (s for s in grade_sections if (s.get("section") or "").strip().lower() == wanted.strip().lower()),
+                    None
+                )
+                if not match:
+                    available = ", ".join(s.get("section") or "" for s in grade_sections)
+                    return JSONResponse(
+                        status_code=404,
+                        content={"error": f"Section '{section_raw}' not found for {normalized_grade}. Available: {available}"}
+                    )
+                primary_section_id = match.get("id")
+            else:
+                primary_section_id = grade_sections[0].get("id")
+        else:
+            wanted = capitalize_section(section_raw)
+            match = next(
+                (s for s in grade_sections if (s.get("section") or "").strip().lower() == wanted.strip().lower()),
+                None
+            )
+            if not match:
+                available = ", ".join(s.get("section") or "" for s in grade_sections)
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": (
+                            f"Section '{section_raw}' not found for grade {normalized_grade} "
+                            f"in {school_year}. Available: {available}"
+                        )
+                    }
+                )
+            primary_section_id = match.get("id")
+
+        existing_response = admin_supabase.table("students").select(
+            "id,full_name,section_id,sections(grade,section)"
+        ).eq("student_identifier", student_identifier).maybe_single().execute()
+
+        if existing_response and hasattr(existing_response, 'data') and existing_response.data is not None:
+            existing = existing_response.data
+            section_info = existing.get("sections")
+            if isinstance(section_info, list) and len(section_info) > 0:
+                section_info = section_info[0]
+            section_display = (
+                f"Grade {section_info.get('grade')} {section_info.get('section')}"
+                if section_info else "another class"
+            )
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        f"Student ID {student_identifier} already exists for "
+                        f"{existing.get('full_name')} in {section_display}."
+                    )
+                }
+            )
+
+        capitalized_name = capitalize_name(payload.fullName)
+        insert_response = admin_supabase.table("students").insert({
+            "student_identifier": student_identifier,
+            "full_name": capitalized_name,
+            "section_id": primary_section_id,
+            "school_year": school_year,
+        }).execute()
+
+        if not insert_response or not hasattr(insert_response, 'data') or not insert_response.data:
+            return JSONResponse(status_code=500, content={"error": "Unable to add student."})
+
+        inserted = insert_response.data
+        student_id = inserted[0].get("id") if isinstance(inserted, list) else inserted.get("id")
+
+        sections_to_check = [s.get("id") for s in grade_sections if s.get("id")]
+        if not is_hscp_grade(normalized_grade):
+            sections_to_check = [primary_section_id]
+
+        all_unique_dates = set()
+        section_dates_map = {}
+        for section_id_to_check in sections_to_check:
+            attendance_dates_response = admin_supabase.table("student_attendance").select(
+                "attendance_date"
+            ).eq("section_id", section_id_to_check).execute()
+            if attendance_dates_response and hasattr(attendance_dates_response, 'data') and attendance_dates_response.data:
+                dates_for_section = set(
+                    row.get("attendance_date")
+                    for row in attendance_dates_response.data
+                    if row.get("attendance_date")
+                )
+                section_dates_map[section_id_to_check] = dates_for_section
+                all_unique_dates.update(dates_for_section)
+
+        if all_unique_dates and student_id:
+            holidays_response = admin_supabase.table("holidays").select(
+                "holiday_date"
+            ).eq("school_year", school_year).in_("holiday_date", list(all_unique_dates)).execute()
+            holiday_dates = set()
+            if holidays_response and hasattr(holidays_response, 'data') and holidays_response.data:
+                holiday_dates = set(
+                    row.get("holiday_date")
+                    for row in holidays_response.data
+                    if row.get("holiday_date")
+                )
+            backfill = []
+            for section_id_to_check in sections_to_check:
+                for date in section_dates_map.get(section_id_to_check, set()):
+                    if date not in holiday_dates:
+                        backfill.append({
+                            "student_id": student_id,
+                            "student_identifier": student_identifier,
+                            "section_id": section_id_to_check,
+                            "recorded_by": profile["id"],
+                            "attendance_date": date,
+                            "status": "absent",
+                            "comments": None,
+                            "school_year": school_year,
+                        })
+            if backfill:
+                admin_supabase.table("student_attendance").upsert(
+                    backfill,
+                    on_conflict="student_id,attendance_date,section_id"
+                ).execute()
+
+        section_label = section_raw or (grade_sections[0].get("section") if grade_sections else "")
+        return {
+            "success": (
+                f"Student '{capitalized_name}' added to {normalized_grade}"
+                + (f" {section_label}" if section_label else "")
+                + f" ({school_year})."
+            )
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in add_student_by_grade: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to add student: {str(e)}"}
+        )
+
+@api_router.post("/students/bulk-by-grade", response_model=BulkAddHSCPStudentsResponse)
+async def bulk_add_students_by_grade(
+    payload: BulkAddStudentsByGradeRequest,
+    profile: dict = Depends(get_current_profile),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Admin bulk roster upload for the current school year.
+    CSV rows: Student ID, Student Name, Grade, Section
+    - HSCP grades: Section may be empty
+    - All other grades: Section is required (no defaulting)
+    """
+    try:
+        if profile.get("role") != "admin":
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Only admins can bulk-upload students for any grade."}
+            )
+
+        if not payload.students:
+            return JSONResponse(status_code=400, content={"error": "No students provided."})
+
+        admin_supabase = get_supabase_admin_client()
+        school_year = get_current_school_year()
+        log_info(f"bulk_add_students_by_grade called - schoolYear: {school_year}, count: {len(payload.students)}")
+
+        records = []
+        invalid_grades = []
+        invalid_ids = []
+        missing_sections = []
+        for idx, student in enumerate(payload.students, start=1):
+            raw_grade = (student.grade or "").strip()
+            normalized_grade = normalize_grade_for_roster(raw_grade) if raw_grade else ""
+            if not normalized_grade:
+                invalid_grades.append(f"row {idx}: '(empty)'")
+                continue
+            try:
+                student_identifier = int(str(student.studentIdentifier).strip())
+            except (ValueError, AttributeError):
+                invalid_ids.append(f"row {idx}: '{student.studentIdentifier}'")
+                continue
+            full_name = (student.fullName or "").strip()
+            if not full_name:
+                continue
+
+            section_raw = (student.section or "").strip()
+            if not is_hscp_grade(normalized_grade) and not section_raw:
+                missing_sections.append(f"row {idx} (ID {student_identifier})")
+                continue
+
+            records.append({
+                "student_identifier": student_identifier,
+                "full_name": capitalize_name(full_name),
+                "grade": normalized_grade,
+                "section": capitalize_section(section_raw) if section_raw else None,
+                "school_year": school_year,
+            })
+
+        if invalid_grades:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Invalid grade(s): {', '.join(invalid_grades[:10])}"}
+            )
+        if invalid_ids:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Student ID must be a number. Problem rows: {', '.join(invalid_ids[:10])}"}
+            )
+        if missing_sections:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        "Section is required for non-HSCP grades. "
+                        f"Missing section on: {', '.join(missing_sections[:15])}"
+                        + ("..." if len(missing_sections) > 15 else "")
+                    )
+                }
+            )
+        if not records:
+            return JSONResponse(status_code=400, content={"error": "No valid student rows found in CSV."})
+
+        identifier_counts: dict = {}
+        for record in records:
+            sid = record["student_identifier"]
+            identifier_counts[sid] = identifier_counts.get(sid, 0) + 1
+        duplicates_in_csv = [sid for sid, count in identifier_counts.items() if count > 1]
+        if duplicates_in_csv:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Duplicate student IDs in CSV: {', '.join(map(str, duplicates_in_csv[:20]))}."}
+            )
+
+        identifiers_to_check = [r["student_identifier"] for r in records]
+        existing_response = admin_supabase.table("students").select(
+            "student_identifier,full_name,section_id,sections(grade,section)"
+        ).in_("student_identifier", identifiers_to_check).execute()
+        if existing_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for existing students query")
+        if hasattr(existing_response, 'error') and existing_response.error:
+            raise HTTPException(status_code=500, detail=str(existing_response.error))
+        existing_students = existing_response.data if hasattr(existing_response, 'data') and existing_response.data else []
+        if existing_students:
+            duplicates = []
+            for s in existing_students:
+                section_info = s.get("sections")
+                if isinstance(section_info, list) and len(section_info) > 0:
+                    section_info = section_info[0]
+                section_display = (
+                    f"Grade {section_info.get('grade')} {section_info.get('section')}"
+                    if section_info else "another class"
+                )
+                duplicates.append(f"ID {s.get('student_identifier')} ({s.get('full_name')} - {section_display})")
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"The following student IDs already exist: {', '.join(duplicates)}."}
+            )
+
+        # Resolve section_id per row (no defaulting for non-HSCP)
+        grades_needed = sorted({r["grade"] for r in records})
+        grade_sections_map: dict = {}
+        for grade in grades_needed:
+            sections_response = admin_supabase.table("sections").select(
+                "id,section"
+            ).eq("grade", grade).eq("school_year", school_year).order("section", desc=False).execute()
+            if not sections_response or not hasattr(sections_response, 'data') or not sections_response.data:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": (
+                            f"No sections found for grade {grade} in school year {school_year}. "
+                            f"Please create sections for this grade first."
+                        )
+                    }
+                )
+            grade_sections_map[grade] = sections_response.data
+
+        section_errors = []
+        for record in records:
+            grade = record["grade"]
+            grade_sections = grade_sections_map[grade]
+            if is_hscp_grade(grade):
+                if record["section"]:
+                    match = next(
+                        (
+                            s for s in grade_sections
+                            if (s.get("section") or "").strip().lower() == record["section"].strip().lower()
+                        ),
+                        None
+                    )
+                    if not match:
+                        section_errors.append(
+                            f"ID {record['student_identifier']}: section '{record['section']}' not found for {grade}"
+                        )
+                        continue
+                    record["section_id"] = match.get("id")
+                else:
+                    record["section_id"] = grade_sections[0].get("id")
+                record["backfill_section_ids"] = [s.get("id") for s in grade_sections if s.get("id")]
+            else:
+                match = next(
+                    (
+                        s for s in grade_sections
+                        if (s.get("section") or "").strip().lower() == (record["section"] or "").strip().lower()
+                    ),
+                    None
+                )
+                if not match:
+                    available = ", ".join(s.get("section") or "" for s in grade_sections)
+                    section_errors.append(
+                        f"ID {record['student_identifier']}: section '{record['section']}' "
+                        f"not found for grade {grade}. Available: {available}"
+                    )
+                    continue
+                record["section_id"] = match.get("id")
+                record["backfill_section_ids"] = [record["section_id"]]
+
+        if section_errors:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        "Invalid section(s): "
+                        + "; ".join(section_errors[:12])
+                        + ("..." if len(section_errors) > 12 else "")
+                    )
+                }
+            )
+
+        insert_records = [{
+            "student_identifier": r["student_identifier"],
+            "full_name": r["full_name"],
+            "section_id": r["section_id"],
+            "school_year": school_year,
+        } for r in records]
+
+        insert_response = admin_supabase.table("students").insert(insert_records).execute()
+        if insert_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for students insert")
+        if hasattr(insert_response, 'error') and insert_response.error:
+            raise HTTPException(status_code=500, detail=f"Unable to upload roster: {insert_response.error}")
+
+        inserted_students = insert_response.data if hasattr(insert_response, 'data') and insert_response.data else []
+        id_to_record = {r["student_identifier"]: r for r in records}
+
+        all_section_ids = []
+        for r in records:
+            all_section_ids.extend(r.get("backfill_section_ids") or [])
+        all_section_ids = list(dict.fromkeys([s for s in all_section_ids if s]))
+
+        section_dates_map: dict = {}
+        all_unique_dates = set()
+        for section_id_to_check in all_section_ids:
+            attendance_dates_response = admin_supabase.table("student_attendance").select(
+                "attendance_date"
+            ).eq("section_id", section_id_to_check).execute()
+            if attendance_dates_response and hasattr(attendance_dates_response, 'data') and attendance_dates_response.data:
+                dates_for_section = set(
+                    row.get("attendance_date")
+                    for row in attendance_dates_response.data
+                    if row.get("attendance_date")
+                )
+                section_dates_map[section_id_to_check] = dates_for_section
+                all_unique_dates.update(dates_for_section)
+
+        if all_unique_dates and inserted_students:
+            holidays_response = admin_supabase.table("holidays").select(
+                "holiday_date"
+            ).eq("school_year", school_year).in_("holiday_date", list(all_unique_dates)).execute()
+            holiday_set = set()
+            if holidays_response and hasattr(holidays_response, 'data') and holidays_response.data:
+                holiday_set = set(
+                    row.get("holiday_date")
+                    for row in holidays_response.data
+                    if row.get("holiday_date")
+                )
+            backfill_records = []
+            for student in inserted_students:
+                student_id = student.get("id")
+                student_identifier = student.get("student_identifier")
+                if not student_id or student_identifier is None:
+                    continue
+                source = id_to_record.get(student_identifier)
+                if not source:
+                    continue
+                for section_id_to_check in source.get("backfill_section_ids") or []:
+                    for date in section_dates_map.get(section_id_to_check, set()):
+                        if date not in holiday_set:
+                            backfill_records.append({
+                                "student_id": student_id,
+                                "student_identifier": student_identifier,
+                                "section_id": section_id_to_check,
+                                "recorded_by": profile.get("id"),
+                                "attendance_date": date,
+                                "status": "absent",
+                                "comments": None,
+                                "school_year": school_year,
+                            })
+            if backfill_records:
+                admin_supabase.table("student_attendance").upsert(
+                    backfill_records,
+                    on_conflict="student_id,attendance_date,section_id"
+                ).execute()
+
+        added_count = len(inserted_students)
+        return {
+            "success": f"{added_count} student(s) uploaded successfully for {school_year}.",
+            "addedCount": added_count,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in bulk_add_students_by_grade: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to upload roster: {str(e)}"}
+        )
+
 @api_router.put("/students", response_model=UpdateStudentResponse)
 async def update_student(
     payload: UpdateStudentRequest,
@@ -2038,6 +2955,762 @@ async def update_student(
             status_code=500,
             content={"error": f"Failed to update student: {str(e)}"}
         )
+
+@api_router.get("/working-days")
+async def list_working_days(
+    calendarType: str,
+    schoolYear: Optional[str] = None,
+    profile: dict = Depends(get_current_profile),
+):
+    """
+    List working days for a calendar (hscp | regular) and school year.
+    Readable by any authenticated role (attendance date pickers).
+    """
+    try:
+        calendar_type = (calendarType or "").strip().lower()
+        if calendar_type not in ("hscp", "regular"):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "calendarType must be 'hscp' or 'regular'."},
+            )
+
+        school_year = (schoolYear or "").strip() or get_current_school_year()
+        admin_supabase = get_supabase_admin_client()
+        response = (
+            admin_supabase.table("working_days")
+            .select("work_date,school_year,calendar_type")
+            .eq("school_year", school_year)
+            .eq("calendar_type", calendar_type)
+            .order("work_date", desc=False)
+            .execute()
+        )
+        rows = response.data if response and hasattr(response, "data") and response.data else []
+        dates = [row.get("work_date") for row in rows if row.get("work_date")]
+        return {
+            "schoolYear": school_year,
+            "calendarType": calendar_type,
+            "dates": dates,
+            "count": len(dates),
+        }
+    except Exception as e:
+        log_error(f"Error listing working days: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to list working days: {str(e)}"},
+        )
+
+
+@api_router.post("/working-days/bulk", response_model=BulkWorkingDaysResponse)
+async def bulk_upload_working_days(
+    payload: BulkWorkingDaysRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """
+    Replace working days for the school year(s) present in the upload.
+
+    One-column CSV dates (MM/DD/YYYY) are sent as payload.dates.
+    calendarType is chosen in the UI (hscp | regular), not in the CSV.
+    school_year is derived per date (Aug–May).
+
+    Roles:
+      - admin: hscp or regular
+      - hscp_officer: hscp only
+    """
+    try:
+        current_role = profile.get("role")
+        calendar_type = (payload.calendarType or "").strip().lower()
+
+        if calendar_type not in ("hscp", "regular"):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "calendarType must be 'hscp' or 'regular'."},
+            )
+
+        if current_role == "admin":
+            pass
+        elif current_role == "hscp_officer":
+            if calendar_type != "hscp":
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "HSCP officers can only upload the HSCP Grades calendar."},
+                )
+        else:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Only admins and HSCP officers can upload working days."},
+            )
+
+        if not payload.dates:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No dates provided. CSV should have header 'working_days' and MM/DD/YYYY rows."},
+            )
+
+        # Parse and group by school year
+        by_year: dict = {}
+        invalid = []
+        for idx, raw in enumerate(payload.dates, start=1):
+            text = str(raw or "").strip()
+            # Skip header-like values if client sent them
+            if text.lower().replace(" ", "_") in ("working_days", "workingday", "date", "dates"):
+                continue
+            parsed = parse_mdy_date(text)
+            if not parsed:
+                invalid.append(f"row {idx}: '{text}'")
+                continue
+            year_key = get_school_year_for_date(parsed)
+            iso = parsed.isoformat()
+            by_year.setdefault(year_key, set()).add(iso)
+
+        if invalid and not by_year:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        "No valid dates found. Use MM/DD/YYYY under header working_days. "
+                        f"Examples of invalid: {', '.join(invalid[:5])}"
+                    )
+                },
+            )
+
+        if not by_year:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No valid dates found after parsing the CSV."},
+            )
+
+        admin_supabase = get_supabase_admin_client()
+        total_added = 0
+        school_years = sorted(by_year.keys())
+
+        for school_year, date_set in by_year.items():
+            # Replace strategy: delete existing for this year + calendar, then insert
+            admin_supabase.table("working_days").delete().eq(
+                "school_year", school_year
+            ).eq("calendar_type", calendar_type).execute()
+
+            rows = [
+                {
+                    "work_date": d,
+                    "school_year": school_year,
+                    "calendar_type": calendar_type,
+                }
+                for d in sorted(date_set)
+            ]
+            insert_response = admin_supabase.table("working_days").insert(rows).execute()
+            if insert_response is None:
+                raise HTTPException(status_code=500, detail="Supabase returned None for working_days insert")
+            if hasattr(insert_response, "error") and insert_response.error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Unable to save working days: {insert_response.error}",
+                )
+            total_added += len(rows)
+
+        label = "HSCP Grades" if calendar_type == "hscp" else "Regular Grades"
+        warn = ""
+        if invalid:
+            warn = f" Skipped {len(invalid)} invalid row(s)."
+
+        return {
+            "success": (
+                f"Uploaded {total_added} working day(s) for {label} "
+                f"({', '.join(school_years)}).{warn}"
+            ),
+            "addedCount": total_added,
+            "schoolYears": school_years,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error uploading working days: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to upload working days: {str(e)}"},
+        )
+
+
+def _require_classroom_manager(profile: dict) -> Optional[JSONResponse]:
+    role = profile.get("role")
+    if role not in ("admin", "hscp_officer"):
+        return JSONResponse(
+            status_code=403,
+            content={"error": "Only admins and HSCP officers can manage classrooms."},
+        )
+    return None
+
+
+def _classroom_grade_allowed(role: str, grade: str) -> bool:
+    if role == "admin":
+        return True
+    return is_hscp_grade(grade)
+
+
+@api_router.get("/classrooms")
+async def list_classrooms(
+    schoolYear: Optional[str] = None,
+    profile: dict = Depends(get_current_profile),
+):
+    """List classrooms (sections) for the current school year."""
+    try:
+        denied = _require_classroom_manager(profile)
+        if denied:
+            return denied
+
+        school_year = (schoolYear or "").strip() or get_current_school_year()
+        admin_supabase = get_supabase_admin_client()
+        query = (
+            admin_supabase.table("sections")
+            .select("id,grade,section,room_number,school_year")
+            .eq("school_year", school_year)
+            .order("grade", desc=False)
+            .order("section", desc=False)
+        )
+        response = query.execute()
+        rows = response.data if response and hasattr(response, "data") and response.data else []
+
+        if profile.get("role") == "hscp_officer":
+            rows = [r for r in rows if is_hscp_grade(r.get("grade") or "")]
+
+        return {
+            "schoolYear": school_year,
+            "classrooms": [
+                {
+                    "id": r.get("id"),
+                    "grade": r.get("grade"),
+                    "section": r.get("section"),
+                    "roomNumber": r.get("room_number"),
+                    "schoolYear": r.get("school_year"),
+                }
+                for r in rows
+            ],
+        }
+    except Exception as e:
+        log_error(f"Error listing classrooms: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to list classrooms: {str(e)}"},
+        )
+
+
+def _insert_classroom_rows(admin_supabase, school_year: str, grade: str, section_names: list, room_number: Optional[str]):
+    rows = [
+        {
+            "grade": grade,
+            "section": section_name,
+            "room_number": room_number if room_number else None,
+            "school_year": school_year,
+        }
+        for section_name in section_names
+    ]
+    insert_response = admin_supabase.table("sections").insert(rows).execute()
+    if insert_response is None:
+        raise HTTPException(status_code=500, detail="Supabase returned None for sections insert")
+    if hasattr(insert_response, "error") and insert_response.error:
+        raise HTTPException(status_code=500, detail=f"Unable to create classroom(s): {insert_response.error}")
+    return len(rows)
+
+
+@api_router.post("/classrooms")
+async def create_classroom(
+    payload: CreateClassroomRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """Create one classroom (regular) or HSCP trio (Conversation/Reading/Writing)."""
+    try:
+        denied = _require_classroom_manager(profile)
+        if denied:
+            return denied
+
+        role = profile.get("role")
+        school_year = get_current_school_year()
+        raw_grade = (payload.grade or "").strip()
+        if not raw_grade:
+            return JSONResponse(status_code=400, content={"error": "Grade is required."})
+
+        grade = normalize_grade_for_roster(raw_grade)
+        if not _classroom_grade_allowed(role, grade):
+            return JSONResponse(
+                status_code=403,
+                content={"error": "HSCP officers can only create HSCP classrooms."},
+            )
+
+        room_number = (payload.roomNumber or "").strip() or None
+        admin_supabase = get_supabase_admin_client()
+
+        if is_hscp_grade(grade):
+            existing = (
+                admin_supabase.table("sections")
+                .select("id,section")
+                .eq("school_year", school_year)
+                .eq("grade", grade)
+                .execute()
+            )
+            existing_rows = existing.data if existing and hasattr(existing, "data") and existing.data else []
+            if existing_rows:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": (
+                            f"{grade} classrooms already exist for school year {school_year}. "
+                            "To change the room number, edit the classroom in the list below."
+                        )
+                    },
+                )
+            count = _insert_classroom_rows(
+                admin_supabase, school_year, grade, HSCP_CLASSROOM_SECTIONS, room_number
+            )
+            return {
+                "success": f"Created {count} {grade} classrooms (Conversation, Reading, Writing) for {school_year}.",
+                "addedCount": count,
+            }
+
+        section_name = capitalize_section((payload.section or "").strip())
+        if not section_name:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Section is required for regular grades."},
+            )
+
+        existing = (
+            admin_supabase.table("sections")
+            .select("id")
+            .eq("school_year", school_year)
+            .eq("grade", grade)
+            .eq("section", section_name)
+            .maybe_single()
+            .execute()
+        )
+        if existing and hasattr(existing, "data") and existing.data:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        f"Grade {grade}, Section {section_name} already exists for school year {school_year}. "
+                        "To change the room number, edit the classroom in the list below."
+                    )
+                },
+            )
+
+        _insert_classroom_rows(admin_supabase, school_year, grade, [section_name], room_number)
+        return {
+            "success": f"Created classroom Grade {grade} — {section_name} for {school_year}.",
+            "addedCount": 1,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error creating classroom: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to create classroom: {str(e)}"},
+        )
+
+
+@api_router.post("/classrooms/bulk")
+async def bulk_create_classrooms(
+    payload: BulkCreateClassroomsRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """Bulk-create classrooms from CSV rows (Grade, Section, Room Number)."""
+    try:
+        denied = _require_classroom_manager(profile)
+        if denied:
+            return denied
+
+        if not payload.classrooms:
+            return JSONResponse(status_code=400, content={"error": "No classroom rows provided."})
+
+        role = profile.get("role")
+        school_year = get_current_school_year()
+        admin_supabase = get_supabase_admin_client()
+
+        added = 0
+        errors = []
+        # Track HSCP grades already handled in this upload to avoid duplicate trio inserts
+        hscp_seen = set()
+
+        for idx, item in enumerate(payload.classrooms, start=1):
+            raw_grade = (item.grade or "").strip()
+            if not raw_grade:
+                errors.append(f"row {idx}: Grade is required")
+                continue
+
+            # Skip header-like rows
+            if idx == 1 and raw_grade.lower() in ("grade", "grades"):
+                continue
+
+            grade = normalize_grade_for_roster(raw_grade)
+            if not _classroom_grade_allowed(role, grade):
+                errors.append(f"row {idx}: HSCP officers can only upload HSCP grades (got '{raw_grade}')")
+                continue
+
+            room_number = (item.roomNumber or "").strip() or None
+
+            if is_hscp_grade(grade):
+                if grade in hscp_seen:
+                    continue
+                hscp_seen.add(grade)
+                existing = (
+                    admin_supabase.table("sections")
+                    .select("id")
+                    .eq("school_year", school_year)
+                    .eq("grade", grade)
+                    .execute()
+                )
+                existing_rows = existing.data if existing and hasattr(existing, "data") and existing.data else []
+                if existing_rows:
+                    errors.append(
+                        f"row {idx}: {grade} classrooms already exist for {school_year}. "
+                        "Edit the room number in the list below."
+                    )
+                    continue
+                try:
+                    added += _insert_classroom_rows(
+                        admin_supabase, school_year, grade, HSCP_CLASSROOM_SECTIONS, room_number
+                    )
+                except Exception as e:
+                    errors.append(f"row {idx}: {str(e)}")
+                continue
+
+            section_name = capitalize_section((item.section or "").strip())
+            if not section_name:
+                errors.append(f"row {idx}: Section is required for regular grade '{grade}'")
+                continue
+
+            existing = (
+                admin_supabase.table("sections")
+                .select("id")
+                .eq("school_year", school_year)
+                .eq("grade", grade)
+                .eq("section", section_name)
+                .maybe_single()
+                .execute()
+            )
+            if existing and hasattr(existing, "data") and existing.data:
+                errors.append(
+                    f"row {idx}: Grade {grade}, Section {section_name} already exists for {school_year}. "
+                    "Edit the room number in the list below."
+                )
+                continue
+
+            try:
+                added += _insert_classroom_rows(
+                    admin_supabase, school_year, grade, [section_name], room_number
+                )
+            except Exception as e:
+                errors.append(f"row {idx}: {str(e)}")
+
+        if added == 0 and errors:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No classrooms were created. " + "; ".join(errors[:8])
+                    + ("..." if len(errors) > 8 else "")
+                },
+            )
+
+        msg = f"Created {added} classroom row(s) for {school_year}."
+        if errors:
+            msg += f" {len(errors)} row(s) skipped: " + "; ".join(errors[:6])
+            if len(errors) > 6:
+                msg += "..."
+
+        return {"success": msg, "addedCount": added, "errorCount": len(errors)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error bulk-creating classrooms: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to upload classrooms: {str(e)}"},
+        )
+
+
+@api_router.patch("/classrooms/{section_id}/room")
+async def update_classroom_room(
+    section_id: str,
+    payload: UpdateClassroomRoomRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """Update room_number only for a classroom."""
+    try:
+        denied = _require_classroom_manager(profile)
+        if denied:
+            return denied
+
+        admin_supabase = get_supabase_admin_client()
+        section_resp = (
+            admin_supabase.table("sections")
+            .select("id,grade,section,school_year")
+            .eq("id", section_id)
+            .maybe_single()
+            .execute()
+        )
+        if not section_resp or not getattr(section_resp, "data", None):
+            return JSONResponse(status_code=404, content={"error": "Classroom not found."})
+
+        section = section_resp.data
+        grade = section.get("grade") or ""
+        if not _classroom_grade_allowed(profile.get("role"), grade):
+            return JSONResponse(
+                status_code=403,
+                content={"error": "HSCP officers can only edit HSCP classrooms."},
+            )
+
+        room_number = (payload.roomNumber or "").strip() or None
+        school_year = section.get("school_year") or get_current_school_year()
+
+        # HSCP: keep Conversation/Reading/Writing room numbers in sync for the grade
+        if is_hscp_grade(grade):
+            update_resp = (
+                admin_supabase.table("sections")
+                .update({"room_number": room_number})
+                .eq("school_year", school_year)
+                .eq("grade", grade)
+                .execute()
+            )
+            if update_resp and hasattr(update_resp, "error") and update_resp.error:
+                raise HTTPException(status_code=500, detail=str(update_resp.error))
+            return {"success": f"Updated room number for {grade}."}
+
+        update_resp = (
+            admin_supabase.table("sections")
+            .update({"room_number": room_number})
+            .eq("id", section_id)
+            .execute()
+        )
+        if update_resp and hasattr(update_resp, "error") and update_resp.error:
+            raise HTTPException(status_code=500, detail=str(update_resp.error))
+
+        return {
+            "success": (
+                f"Updated room number for {grade}"
+                + (f" — {section.get('section')}" if section.get("section") else "")
+                + "."
+            )
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error updating classroom room: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to update room number: {str(e)}"},
+        )
+
+
+@api_router.post("/classrooms/{section_id}/delete")
+async def delete_classroom(
+    section_id: str,
+    payload: DeleteClassroomRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """
+    Delete a classroom section.
+    - Blocks if students are still assigned.
+    - If attendance exists, requires moveAttendanceToSectionId and rewrites section_id.
+    - If teachers assigned, requires confirmTeachers=true.
+    - For HSCP grades, deletes Conversation/Reading/Writing for that grade together.
+    """
+    try:
+        denied = _require_classroom_manager(profile)
+        if denied:
+            return denied
+
+        admin_supabase = get_supabase_admin_client()
+        section_resp = (
+            admin_supabase.table("sections")
+            .select("id,grade,section,school_year,room_number")
+            .eq("id", section_id)
+            .maybe_single()
+            .execute()
+        )
+        if not section_resp or not getattr(section_resp, "data", None):
+            return JSONResponse(status_code=404, content={"error": "Classroom not found."})
+
+        section = section_resp.data
+        grade = section.get("grade") or ""
+        school_year = section.get("school_year") or get_current_school_year()
+        if not _classroom_grade_allowed(profile.get("role"), grade):
+            return JSONResponse(
+                status_code=403,
+                content={"error": "HSCP officers can only delete HSCP classrooms."},
+            )
+
+        # Resolve target section IDs (HSCP = all three for grade)
+        if is_hscp_grade(grade):
+            all_resp = (
+                admin_supabase.table("sections")
+                .select("id,grade,section")
+                .eq("school_year", school_year)
+                .eq("grade", grade)
+                .execute()
+            )
+            target_sections = all_resp.data if all_resp and hasattr(all_resp, "data") and all_resp.data else [section]
+        else:
+            target_sections = [section]
+
+        target_ids = [s.get("id") for s in target_sections if s.get("id")]
+        if not target_ids:
+            return JSONResponse(status_code=404, content={"error": "No classrooms found to delete."})
+
+        # Students still enrolled?
+        students_resp = (
+            admin_supabase.table("students")
+            .select("id")
+            .in_("section_id", target_ids)
+            .execute()
+        )
+        student_rows = students_resp.data if students_resp and hasattr(students_resp, "data") and students_resp.data else []
+        if student_rows:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "code": "STUDENTS_EXIST",
+                    "error": (
+                        "Students are still assigned to this classroom. "
+                        "Move those students to another section first, then try deleting again."
+                    ),
+                    "studentCount": len(student_rows),
+                },
+            )
+
+        # Attendance exists?
+        attendance_resp = (
+            admin_supabase.table("student_attendance")
+            .select("id")
+            .in_("section_id", target_ids)
+            .execute()
+        )
+        attendance_rows = (
+            attendance_resp.data
+            if attendance_resp and hasattr(attendance_resp, "data") and attendance_resp.data
+            else []
+        )
+        attendance_count = len(attendance_rows)
+
+        # Destination options (same school year, not in delete set)
+        dest_query = (
+            admin_supabase.table("sections")
+            .select("id,grade,section")
+            .eq("school_year", school_year)
+            .order("grade", desc=False)
+            .order("section", desc=False)
+            .execute()
+        )
+        all_year_sections = dest_query.data if dest_query and hasattr(dest_query, "data") and dest_query.data else []
+        destinations = [
+            {
+                "id": s.get("id"),
+                "grade": s.get("grade"),
+                "section": s.get("section"),
+                "label": f"{s.get('grade')} — {s.get('section')}",
+            }
+            for s in all_year_sections
+            if s.get("id") and s.get("id") not in target_ids
+        ]
+        if profile.get("role") == "hscp_officer":
+            destinations = [d for d in destinations if is_hscp_grade(d.get("grade") or "")]
+
+        if attendance_count > 0 and not payload.moveAttendanceToSectionId:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "code": "ATTENDANCE_EXISTS",
+                    "error": (
+                        f"Attendance data already exists for this grade and section ({attendance_count} record(s)). "
+                        "Choose another classroom to move that attendance to, then confirm deletion."
+                    ),
+                    "attendanceCount": attendance_count,
+                    "destinations": destinations,
+                },
+            )
+
+        move_to = (payload.moveAttendanceToSectionId or "").strip() or None
+        if attendance_count > 0:
+            if move_to in target_ids:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Destination classroom must be different from the one being deleted."},
+                )
+            dest_ok = any(d.get("id") == move_to for d in destinations)
+            if not dest_ok:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Invalid destination classroom for moving attendance."},
+                )
+
+        # Teachers assigned?
+        teachers_resp = (
+            admin_supabase.table("teacher_sections")
+            .select("id,teacher_id")
+            .in_("section_id", target_ids)
+            .execute()
+        )
+        teacher_rows = (
+            teachers_resp.data
+            if teachers_resp and hasattr(teachers_resp, "data") and teachers_resp.data
+            else []
+        )
+        if teacher_rows and not payload.confirmTeachers:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "code": "TEACHER_ASSIGNED",
+                    "error": (
+                        f"{len(teacher_rows)} teacher assignment(s) are linked to this classroom. "
+                        "You can continue; assignments for these sections will be removed."
+                    ),
+                    "teacherCount": len(teacher_rows),
+                    "needsConfirm": True,
+                    "attendanceCount": attendance_count,
+                    "destinations": destinations,
+                },
+            )
+
+        # Move attendance if requested
+        if attendance_count > 0 and move_to:
+            upd = (
+                admin_supabase.table("student_attendance")
+                .update({"section_id": move_to})
+                .in_("section_id", target_ids)
+                .execute()
+            )
+            if upd and hasattr(upd, "error") and upd.error:
+                raise HTTPException(status_code=500, detail=f"Failed to move attendance: {upd.error}")
+
+        # Remove teacher assignments for these sections
+        if teacher_rows:
+            admin_supabase.table("teacher_sections").delete().in_("section_id", target_ids).execute()
+
+        # Delete sections
+        del_resp = admin_supabase.table("sections").delete().in_("id", target_ids).execute()
+        if del_resp and hasattr(del_resp, "error") and del_resp.error:
+            raise HTTPException(status_code=500, detail=f"Failed to delete classroom: {del_resp.error}")
+
+        label = grade if is_hscp_grade(grade) else f"{grade} — {section.get('section')}"
+        extra = ""
+        if attendance_count > 0 and move_to:
+            extra = f" Moved {attendance_count} attendance record(s) to the selected classroom."
+        if is_hscp_grade(grade):
+            return {
+                "success": (
+                    f"Deleted all {grade} classrooms (Conversation, Reading, Writing) for {school_year}.{extra}"
+                )
+            }
+        return {"success": f"Deleted classroom {label} for {school_year}.{extra}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error deleting classroom: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to delete classroom: {str(e)}"},
+        )
+
 
 @api_router.post("/students/bulk", response_model=BulkAddStudentsResponse)
 async def bulk_add_students(
@@ -2391,11 +4064,11 @@ async def signup(payload: SignupRequest):
         
         settings_data = settings_response.data
         if isinstance(settings_data, list) and len(settings_data) > 0:
-            current_school_year = settings_data[0].get("current_school_year", "2025-2026")
+            current_school_year = get_current_school_year()
         elif isinstance(settings_data, dict):
-            current_school_year = settings_data.get("current_school_year", "2025-2026")
+            current_school_year = get_current_school_year()
         else:
-            current_school_year = "2025-2026"
+            current_school_year = get_current_school_year()
         
         # For teachers, validate section/room number (but don't create section - that happens on approval)
         if normalized_role == "teacher":
@@ -2623,11 +4296,11 @@ async def create_staff(
         
         settings_data = settings_response.data
         if isinstance(settings_data, list) and len(settings_data) > 0:
-            current_school_year = settings_data[0].get("current_school_year", "2025-2026")
+            current_school_year = get_current_school_year()
         elif isinstance(settings_data, dict):
-            current_school_year = settings_data.get("current_school_year", "2025-2026")
+            current_school_year = get_current_school_year()
         else:
-            current_school_year = "2025-2026"
+            current_school_year = get_current_school_year()
         
         # For teachers, validate and create section
         section_id = None
@@ -3148,11 +4821,11 @@ async def approve_user(
             
             settings_data = settings_response.data
             if isinstance(settings_data, list) and len(settings_data) > 0:
-                current_school_year = settings_data[0].get("current_school_year", "2025-2026")
+                current_school_year = get_current_school_year()
             elif isinstance(settings_data, dict):
-                current_school_year = settings_data.get("current_school_year", "2025-2026")
+                current_school_year = get_current_school_year()
             else:
-                current_school_year = "2025-2026"
+                current_school_year = get_current_school_year()
             
             # For HSCP grades, ensure all sections of the same grade share the same room number
             if is_hscp_grade(grade):
@@ -4397,15 +6070,15 @@ async def auto_assign_teacher_section(
         # Get current school year
         settings_response = admin_supabase.table("system_settings").select("current_school_year").eq("id", 1).execute()
         if settings_response is None or not hasattr(settings_response, 'data') or not settings_response.data:
-            current_school_year = "2025-2026"
+            current_school_year = get_current_school_year()
         else:
             settings_data = settings_response.data
             if isinstance(settings_data, list) and len(settings_data) > 0:
-                current_school_year = settings_data[0].get("current_school_year", "2025-2026")
+                current_school_year = get_current_school_year()
             elif isinstance(settings_data, dict):
-                current_school_year = settings_data.get("current_school_year", "2025-2026")
+                current_school_year = get_current_school_year()
             else:
-                current_school_year = "2025-2026"
+                current_school_year = get_current_school_year()
         
         # Check if section exists (try both normalized and original section name for compatibility)
         section_response = admin_supabase.table("sections").select("id").eq("grade", normalized_grade).eq("section", normalized_section).eq("school_year", current_school_year).maybe_single().execute()

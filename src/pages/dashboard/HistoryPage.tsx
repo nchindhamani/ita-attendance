@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
+import { getCurrentSchoolYear } from '@/lib/school-year'
+import { useWorkingDays } from '@/lib/use-working-days'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { DateInput } from '@/components/ui/date-input'
 import { Button } from '@/components/ui/button'
 import { HistoryTable } from '@/features/history/HistoryTable'
@@ -21,11 +23,12 @@ type HistoryRow = {
 
 export default function HistoryPage() {
   const { profile, loading: authLoading } = useRequireActiveProfile()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   
   const sectionId = searchParams.get('section')
   const selectedDate = searchParams.get('date') || formatPacificDate(new Date())
+  const schoolYear = getCurrentSchoolYear()
   
   const [loading, setLoading] = useState(true)
   const [section, setSection] = useState<{ grade: string | null; section: string | null } | null>(null)
@@ -37,6 +40,15 @@ export default function HistoryPage() {
     left_early: 0,
   })
   const [error, setError] = useState<string | null>(null)
+  const [pickerDate, setPickerDate] = useState(selectedDate)
+
+  const { workingDays, pickerMin, pickerMax } = useWorkingDays({
+    schoolYear,
+    scope: { mode: 'grade', grade: section?.grade },
+    selectedDate: pickerDate,
+    dateParam: searchParams.get('date'),
+    onDateResolved: (iso) => setPickerDate(iso),
+  })
 
   // Auto-redirect teachers to their assigned section
   useEffect(() => {
@@ -136,7 +148,9 @@ export default function HistoryPage() {
     fetchData()
   }, [sectionId, selectedDate, profile, authLoading])
 
-  const [pickerDate, setPickerDate] = useState(selectedDate)
+  useEffect(() => {
+    setPickerDate(selectedDate)
+  }, [selectedDate])
 
   const handleDateChange = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -199,8 +213,19 @@ export default function HistoryPage() {
             <div className="flex-1 sm:max-w-[180px]">
               <DateInput
                 value={pickerDate}
-                max={formatPacificDate(new Date())}
-                onChange={(newDate) => setPickerDate(newDate)}
+                min={pickerMin}
+                max={pickerMax}
+                allowedDates={workingDays.length > 0 ? workingDays : undefined}
+                onDisallowedDate={() => {
+                  toast.error('That date is not a working day. Choose a listed class day.')
+                }}
+                onChange={(newDate) => {
+                  if (workingDays.length && !workingDays.includes(newDate)) {
+                    toast.error('That date is not a working day. Choose a listed class day.')
+                    return
+                  }
+                  setPickerDate(newDate)
+                }}
                 className="w-full"
               />
             </div>

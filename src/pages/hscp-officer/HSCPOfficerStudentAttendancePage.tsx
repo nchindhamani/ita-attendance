@@ -1,15 +1,20 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+// PREVIOUS: useNavigate was used with the old layout; kept import commented for revert
+// import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useRequireRole } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { getCurrentSchoolYear } from '@/lib/school-year'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+// PREVIOUS: dialog imports for Add Student modal (kept for revert)
+// import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { StudentAttendanceSearch } from '@/features/admin/StudentAttendanceSearch'
+import { HSCPBulkStudentUpload } from '@/features/hscp/HSCPBulkStudentUpload'
 import { toast } from 'sonner'
-import { UserPlus } from 'lucide-react'
+import { Upload, UserPlus } from 'lucide-react'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -35,7 +40,7 @@ interface HSCPSection {
 
 export default function HSCPOfficerStudentAttendancePage() {
   useRequireRole('hscp_officer')
-  const navigate = useNavigate()
+  // PREVIOUS: const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   
   const studentIdInput = searchParams.get('studentId')?.trim() || ''
@@ -50,27 +55,20 @@ export default function HSCPOfficerStudentAttendancePage() {
   const [hscpSections, setHscpSections] = useState<HSCPSection[]>([])
   const [selectedHscpTab, setSelectedHscpTab] = useState<string>('Reading')
 
-  // Add Student Dialog state
-  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  // Add Student form state (previously used by dialog; now used by inline section)
+  // PREVIOUS: const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [availableHscpGrades, setAvailableHscpGrades] = useState<string[]>([])
   const [newStudentGrade, setNewStudentGrade] = useState('')
   const [newStudentId, setNewStudentId] = useState('')
   const [newStudentName, setNewStudentName] = useState('')
   const [addingStudent, setAddingStudent] = useState(false)
-  const [currentSchoolYear, setCurrentSchoolYear] = useState('2025-2026')
+  const [currentSchoolYear, setCurrentSchoolYear] = useState(getCurrentSchoolYear())
 
-  // Fetch current school year and available HSCP grades on mount
+  // Derive current school year from Pacific calendar; load HSCP grades for that year
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        // Get current school year
-        const { data: settings } = await supabase
-          .from('system_settings')
-          .select('current_school_year')
-          .eq('id', 1)
-          .maybeSingle()
-
-        const sy = settings?.current_school_year || '2025-2026'
+        const sy = getCurrentSchoolYear()
         setCurrentSchoolYear(sy)
 
         // Fetch available HSCP grades
@@ -313,11 +311,12 @@ export default function HSCPOfficerStudentAttendancePage() {
         toast.error(data.error || data.detail || 'Failed to add student.')
       } else {
         toast.success(data.success || 'Student added successfully.')
-        // Reset form and close dialog
+        // Reset form
         setNewStudentGrade('')
         setNewStudentId('')
         setNewStudentName('')
-        setAddDialogOpen(false)
+        // PREVIOUS: also closed the Add Student dialog
+        // setAddDialogOpen(false)
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'An error occurred.')
@@ -327,7 +326,8 @@ export default function HSCPOfficerStudentAttendancePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* ========== PREVIOUS HEADER UI (kept for easy revert) ==========
       <div className="space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -338,22 +338,141 @@ export default function HSCPOfficerStudentAttendancePage() {
               Search for student attendance records in HSCP sections (read-only).
             </p>
           </div>
-          <Button
-            onClick={() => setAddDialogOpen(true)}
-            className="flex items-center gap-2"
-          >
-            <UserPlus className="w-4 h-4" />
-            Add Student
-          </Button>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+            <HSCPBulkStudentUpload schoolYear={currentSchoolYear} />
+            <Button
+              onClick={() => setAddDialogOpen(true)}
+              className="flex items-center gap-2"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add Student
+            </Button>
+          </div>
         </div>
       </div>
+      ========== END PREVIOUS HEADER UI ========== */}
 
-      <StudentAttendanceSearch 
-        initialStudentId={studentIdInput}
-        initialYear={yearInput}
-        availableYears={availableYears}
-        basePath="/hscp-officer/student-attendance"
-      />
+      {/* Page header */}
+      <div>
+        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-1">
+          HSCP Student Management
+        </h2>
+        <p className="text-base text-muted-foreground">
+          Add HSCP students (bulk or one at a time), then search attendance records.
+          School year: <span className="font-medium text-[#0f172a]">{currentSchoolYear}</span>
+        </p>
+      </div>
+
+      {/* Section 1: Bulk upload */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <Upload className="w-5 h-5 text-[#6366f1]" />
+            Upload Students in Bulk
+          </CardTitle>
+          <p className="text-sm text-muted-foreground font-normal pt-1">
+            Upload a CSV file to add many HSCP students at once.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] p-4 sm:p-5">
+            <HSCPBulkStudentUpload schoolYear={currentSchoolYear} />
+          </div>
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p className="font-medium text-[#334155]">CSV format</p>
+            <p>Columns (in order): <span className="font-mono text-xs">Student ID, Student Name, Grade</span></p>
+            <p>Grade values: <span className="font-mono text-xs">HSCP1</span>, <span className="font-mono text-xs">HSCP2</span>, or <span className="font-mono text-xs">HSCP3</span></p>
+            <p className="font-mono text-xs bg-white border rounded px-2 py-1.5 inline-block mt-1">
+              9001,Arun Kumar,HSCP1
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Section 2: Add single student */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <UserPlus className="w-5 h-5 text-[#6366f1]" />
+            Add a Single Student
+          </CardTitle>
+          <p className="text-sm text-muted-foreground font-normal pt-1">
+            Enter one student&apos;s details to add them to an HSCP grade.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="hscp-grade-inline">HSCP Grade *</Label>
+              <select
+                id="hscp-grade-inline"
+                value={newStudentGrade}
+                onChange={(e) => setNewStudentGrade(e.target.value)}
+                className="flex h-12 w-full rounded-[10px] border-2 border-input bg-background px-4 py-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6366f1] focus-visible:ring-offset-2"
+              >
+                <option value="">Select a grade</option>
+                {availableHscpGrades.map((grade) => (
+                  <option key={grade} value={grade}>
+                    {grade}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="student-id-inline">Student ID *</Label>
+              <Input
+                id="student-id-inline"
+                type="number"
+                value={newStudentId}
+                onChange={(e) => setNewStudentId(e.target.value)}
+                placeholder="e.g., 3434"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="student-name-inline">Student Name *</Label>
+              <Input
+                id="student-name-inline"
+                value={newStudentName}
+                onChange={(e) => setNewStudentName(e.target.value)}
+                placeholder="e.g., John Doe"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The student will be added for the selected HSCP grade (Reading, Writing, Conversation).
+            School year: {currentSchoolYear}
+          </p>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              onClick={handleAddStudent}
+              disabled={addingStudent}
+              className="flex items-center gap-2"
+            >
+              <UserPlus className="w-4 h-4" />
+              {addingStudent ? 'Adding...' : 'Add Student'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Section 3: Lookup / search */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-xl">Search Student Attendance</CardTitle>
+          <p className="text-sm text-muted-foreground font-normal pt-1">
+            Look up an HSCP student by Student ID and school year (read-only).
+          </p>
+        </CardHeader>
+        <CardContent>
+          <StudentAttendanceSearch
+            initialStudentId={studentIdInput}
+            initialYear={yearInput}
+            availableYears={availableYears}
+            basePath="/hscp-officer/student-attendance"
+          />
+        </CardContent>
+      </Card>
 
       {errorMessage && (
         <Card>
@@ -479,7 +598,7 @@ export default function HSCPOfficerStudentAttendancePage() {
         </div>
       )}
 
-      {/* Add HSCP Student Dialog */}
+      {/* ========== PREVIOUS ADD-STUDENT DIALOG (kept for easy revert) ==========
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -549,6 +668,7 @@ export default function HSCPOfficerStudentAttendancePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      ========== END PREVIOUS ADD-STUDENT DIALOG ========== */}
     </div>
   )
 }

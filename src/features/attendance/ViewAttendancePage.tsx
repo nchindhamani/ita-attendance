@@ -3,6 +3,8 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { formatPacificDate } from '@/lib/time'
+import { getCurrentSchoolYear } from '@/lib/school-year'
+import { useWorkingDays } from '@/lib/use-working-days'
 import type { AttendanceStatus } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -137,7 +139,7 @@ export default function ViewAttendancePage({
   const [teacherAttendance, setTeacherAttendance] = useState<Record<string, TeacherAttendanceRecord>>({})
   const [holiday, setHoliday] = useState<Holiday | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [schoolYear, setSchoolYear] = useState<string>('2025-2026')
+  const [schoolYear, setSchoolYear] = useState<string>(getCurrentSchoolYear())
   const [selectedDate, setSelectedDate] = useState<string>(dateParam || formatPacificDate(new Date()))
   const [selectedGrade, setSelectedGrade] = useState<string>(gradeParam === 'all' ? ALL_GRADES : gradeParam)
   const [viewMode, setViewMode] = useState<ViewMode>('all')
@@ -157,7 +159,21 @@ export default function ViewAttendancePage({
   const [deleting, setDeleting] = useState(false)
 
   const teachersLoadedRef = useRef(false)
-  const cachedSchoolYearRef = useRef<string>('2025-2026')
+
+  const workingDaysScope = useMemo(() => {
+    if (hscpOnly) return { mode: 'type' as const, calendarType: 'hscp' as const }
+    if (selectedGrade === ALL_GRADES) return { mode: 'both' as const }
+    return { mode: 'grade' as const, grade: selectedGrade }
+  }, [hscpOnly, selectedGrade])
+
+  const { workingDays, pickerMin, pickerMax } = useWorkingDays({
+    schoolYear,
+    scope: workingDaysScope,
+    selectedDate,
+    dateParam,
+    onDateResolved: (iso) => setSelectedDate(iso),
+  })
+  const cachedSchoolYearRef = useRef<string>(getCurrentSchoolYear())
 
   const today = formatPacificDate(new Date())
   const isAllGrades = selectedGrade === ALL_GRADES
@@ -411,13 +427,7 @@ export default function ViewAttendancePage({
         } = await supabase.auth.getSession()
         if (!session?.access_token) throw new Error('Not authenticated')
 
-        const { data: settings } = await supabase
-          .from('system_settings')
-          .select('current_school_year')
-          .eq('id', 1)
-          .maybeSingle()
-
-        const currentSchoolYear = settings?.current_school_year || '2025-2026'
+        const currentSchoolYear = getCurrentSchoolYear()
         setSchoolYear(currentSchoolYear)
         cachedSchoolYearRef.current = currentSchoolYear
 
@@ -560,7 +570,10 @@ export default function ViewAttendancePage({
 
   // ─── Handlers ──────────────────────────────────────────
   const handleDateChange = (newDate: string) => {
-    if (newDate > today) return
+    if (workingDays.length && !workingDays.includes(newDate)) {
+      toast.error('That date is not a working day. Choose a listed class day.')
+      return
+    }
     setSelectedDate(newDate)
   }
 
@@ -1200,7 +1213,12 @@ export default function ViewAttendancePage({
             <div className="flex-1 sm:max-w-[180px]">
               <DateInput
                 value={selectedDate}
-                max={today}
+                min={pickerMin}
+                max={pickerMax}
+                allowedDates={workingDays.length > 0 ? workingDays : undefined}
+                onDisallowedDate={() => {
+                  toast.error('That date is not a working day. Choose a listed class day.')
+                }}
                 onChange={(newDate) => handleDateChange(newDate)}
                 className="w-full"
               />

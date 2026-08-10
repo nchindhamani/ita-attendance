@@ -126,6 +126,8 @@ export function AttendanceEditor({
   onDateChange,
   sectionGrade,
   sectionName,
+  allowedDates,
+  lockMessage,
 }: {
   sectionId: string;
   schoolYear: string;
@@ -138,6 +140,10 @@ export function AttendanceEditor({
   onDateChange?: (date: string) => void;
   sectionGrade?: string | null;
   sectionName?: string | null;
+  /** Working-days allowlist (YYYY-MM-DD). When set, non-listed dates are rejected. */
+  allowedDates?: string[];
+  /** Shown when the date is locked (e.g. not a working day). */
+  lockMessage?: string | null;
 }) {
   const [isPending, startTransition] = useTransition();
   const [showCommentInputs, setShowCommentInputs] = useState<Record<string, boolean>>({});
@@ -242,8 +248,15 @@ export function AttendanceEditor({
   };
 
   const today = formatPacificDate(new Date());
-  const maxDate = today; // Don't allow future dates
-
+  // Allow picking upcoming working days in the calendar; save is locked separately for future dates.
+  const sortedAllowed = allowedDates && allowedDates.length > 0 ? [...allowedDates].sort() : [];
+  const pickerMax =
+    sortedAllowed.length > 0
+      ? sortedAllowed[sortedAllowed.length - 1] > today
+        ? sortedAllowed[sortedAllowed.length - 1]
+        : today
+      : today;
+  const pickerMin = sortedAllowed.length > 0 ? sortedAllowed[0] : undefined;
 
   return (
     <div className="space-y-6">
@@ -254,11 +267,12 @@ export function AttendanceEditor({
             School year: {schoolYearDisplay}
           </p>
         )}
-        {holidayName ? (
+        {/* Holiday messaging disabled — working days are the source of truth */}
+        {/* {holidayName ? (
           <p className="text-sm text-emerald-600">
             Holiday: {holidayName}. Attendance is not required today.
           </p>
-        ) : null}
+        ) : null} */}
       </div>
 
       {/* Date Picker Card with Buttons */}
@@ -266,21 +280,34 @@ export function AttendanceEditor({
         <CardHeader className="px-4 pt-2 pb-0">
           <CardTitle className="text-lg mb-0 leading-none">Pick a date</CardTitle>
         </CardHeader>
-        <CardContent className="px-4 -mt-3 pb-4">
-          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex-1 sm:max-w-[180px]">
-              <DateInput
-                value={attendanceDate}
-                max={maxDate}
-                onChange={(newDate) => {
-                  if (newDate <= maxDate && onDateChange) {
-                    onDateChange(newDate);
-                  }
-                }}
-                className="w-full"
-              />
+        <CardContent className="px-4 pt-3 pb-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="sm:max-w-[180px]">
+                <DateInput
+                  value={attendanceDate}
+                  min={pickerMin}
+                  max={pickerMax}
+                  allowedDates={sortedAllowed.length > 0 ? sortedAllowed : undefined}
+                  onDisallowedDate={() => {
+                    toast.error("That date is not a working day. Choose a listed class day.");
+                  }}
+                  onChange={(newDate) => {
+                    if (!onDateChange) return;
+                    if (sortedAllowed.length > 0) {
+                      if (sortedAllowed.includes(newDate)) onDateChange(newDate);
+                      return;
+                    }
+                    if (newDate <= today) onDateChange(newDate);
+                  }}
+                  className="w-full"
+                />
+              </div>
+              {lockMessage ? (
+                <p className="text-sm text-amber-700 leading-snug">{lockMessage}</p>
+              ) : null}
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 shrink-0">
               <Button onClick={handleSave} disabled={isPending || locked} className="w-full sm:w-auto">
                 {isPending ? "Saving..." : "Save attendance"}
               </Button>
