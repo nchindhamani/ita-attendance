@@ -19,8 +19,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { toast } from 'sonner'
-import { Star, Shield, Edit, Save, X, Key, Trash2 } from 'lucide-react'
+import { Star, Shield, Edit, Save, X, Key, Trash2, CalendarDays } from 'lucide-react'
 import { TemporaryPasswordDialog } from '@/components/admin/TemporaryPasswordDialog'
+import { TeacherAttendanceHistory } from '@/features/admin/TeacherAttendanceHistory'
 import {
   Dialog,
   DialogContent,
@@ -53,12 +54,13 @@ export default function AdminUserDetailPage() {
   useRequireRole('admin')
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<'details' | 'roles'>('details')
+  const [activeTab, setActiveTab] = useState<'details' | 'roles' | 'attendance'>('details')
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [currentAdminId, setCurrentAdminId] = useState<string | null>(null)
   const [updatingRole, setUpdatingRole] = useState(false)
+  const [pendingRole, setPendingRole] = useState<Role | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [editFormData, setEditFormData] = useState({
@@ -427,6 +429,7 @@ export default function AdminUserDetailPage() {
 
     // Don't update if it's the same role
     if (user.role === newRole) {
+      setPendingRole(null)
       return
     }
 
@@ -477,6 +480,7 @@ export default function AdminUserDetailPage() {
       toast.success(`Role updated to ${newRole.replace('_', ' ')}.`)
       // Update local state immediately for better UX
       setUser({ ...user, role: newRole })
+      setPendingRole(null)
       setUpdatingRole(false)
     } catch (e: any) {
       toast.error(e.message || 'An unexpected error occurred.')
@@ -600,11 +604,22 @@ export default function AdminUserDetailPage() {
         </Button>
         <Button
           variant={activeTab === 'roles' ? 'default' : 'ghost'}
-          onClick={() => setActiveTab('roles')}
+          onClick={() => {
+            setPendingRole(null)
+            setActiveTab('roles')
+          }}
           className="rounded-b-none flex items-center gap-2"
         >
           <Shield className="w-4 h-4" />
           Roles & Permissions
+        </Button>
+        <Button
+          variant={activeTab === 'attendance' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('attendance')}
+          className="rounded-b-none flex items-center gap-2"
+        >
+          <CalendarDays className="w-4 h-4" />
+          Attendance History
         </Button>
       </div>
 
@@ -872,7 +887,7 @@ export default function AdminUserDetailPage() {
             <CardHeader>
               <CardTitle>Assign Roles & Permissions</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Select a role for this user. Only one role can be assigned at a time. Changing the role will replace the current role.
+                Select a role for this user. You will be asked to confirm before the role is changed. Only one role can be assigned at a time.
               </p>
             </CardHeader>
             <CardContent>
@@ -900,16 +915,12 @@ export default function AdminUserDetailPage() {
                               disabled={updatingRole}
                               onChange={(e) => {
                                 e.stopPropagation()
-                                // When checking a different role, it replaces the current role
                                 if (e.target.checked && !isCurrentRole) {
-                                  handleRoleUpdate(role)
+                                  setPendingRole(role)
                                 }
-                                // Don't allow unchecking - user must have at least one role
-                                // If they want to change, they check a different role
                               }}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                // Prevent unchecking the current role
                                 if (isCurrentRole && !(e.target as HTMLInputElement).checked) {
                                   e.preventDefault()
                                 }
@@ -942,6 +953,11 @@ export default function AdminUserDetailPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Attendance History Tab */}
+      {activeTab === 'attendance' && id && (
+        <TeacherAttendanceHistory staffId={id} role={user.role} />
       )}
       
       {passwordData && (
@@ -976,6 +992,45 @@ export default function AdminUserDetailPage() {
             </Button>
             <Button variant="destructive" onClick={handleDeleteStaff} disabled={deleting}>
               {deleting ? 'Deleting...' : 'Yes, delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingRole && pendingRole !== user.role)}
+        onOpenChange={(open) => {
+          if (!open && !updatingRole) setPendingRole(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Confirm role change</DialogTitle>
+            <DialogDescription>
+              Change role from{' '}
+              <span className="font-medium capitalize text-foreground">
+                {user.role.replace('_', ' ')}
+              </span>{' '}
+              to{' '}
+              <span className="font-medium capitalize text-foreground">
+                {pendingRole?.replace('_', ' ')}
+              </span>
+              ? This replaces the current role.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setPendingRole(null)}
+              disabled={updatingRole}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => pendingRole && handleRoleUpdate(pendingRole)}
+              disabled={updatingRole || !pendingRole}
+            >
+              {updatingRole ? 'Updating...' : 'Confirm'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Role } from '@/lib/types'
 import { toast } from 'sonner'
-import { Edit, Save, X, Key } from 'lucide-react'
+import { Edit, Save, X, Key, Star, CalendarDays } from 'lucide-react'
 import { TemporaryPasswordDialog } from '@/components/admin/TemporaryPasswordDialog'
+import { TeacherAttendanceHistory } from '@/features/admin/TeacherAttendanceHistory'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -37,6 +38,7 @@ export default function HSCPOfficerTeacherDetailPage() {
   const [teacher, setTeacher] = useState<Teacher | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'details' | 'attendance'>('details')
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [editFormData, setEditFormData] = useState({
@@ -414,6 +416,31 @@ export default function HSCPOfficerTeacherDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Tabs */}
+      <div className="flex gap-2 border-b">
+        <Button
+          variant={activeTab === 'details' ? 'default' : 'ghost'}
+          onClick={() => setActiveTab('details')}
+          className="rounded-b-none flex items-center gap-2"
+        >
+          <Star className="w-4 h-4" />
+          Details
+        </Button>
+        <Button
+          variant={activeTab === 'attendance' ? 'default' : 'ghost'}
+          onClick={() => {
+            setIsEditing(false)
+            setActiveTab('attendance')
+          }}
+          className="rounded-b-none flex items-center gap-2"
+        >
+          <CalendarDays className="w-4 h-4" />
+          Attendance History
+        </Button>
+      </div>
+
+      {activeTab === 'details' && (
+        <>
       {/* Edit Button */}
       <div className="flex justify-end gap-2">
         {!isEditing ? (
@@ -568,6 +595,12 @@ export default function HSCPOfficerTeacherDetailPage() {
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
+
+      {activeTab === 'attendance' && id && (
+        <TeacherAttendanceHistory staffId={id} role={teacher.role} />
+      )}
       
       {passwordData && (
         <TemporaryPasswordDialog
