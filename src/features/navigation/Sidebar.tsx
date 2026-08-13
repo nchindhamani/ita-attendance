@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/features/auth/SignOutButton";
+import { ROLE_LABELS, type Profile } from "@/lib/types";
 
 interface NavLink {
   href: string;
@@ -10,15 +11,26 @@ interface NavLink {
 
 interface SidebarProps {
   navLinks: NavLink[];
-  profile: {
-    full_name: string | null;
-    email: string | null;
-  };
+  profile: Pick<Profile, "full_name" | "email" | "role" | "grade" | "section">;
+}
+
+function signedInSubtitle(profile: SidebarProps["profile"]): string {
+  if (profile.role === "teacher") {
+    if (profile.grade && profile.section) {
+      return `${profile.grade} / ${profile.section}`;
+    }
+    if (profile.grade) {
+      return profile.grade;
+    }
+    return "Not assigned this year";
+  }
+  return ROLE_LABELS[profile.role] ?? profile.role;
 }
 
 export function Sidebar({ navLinks, profile }: SidebarProps) {
   const location = useLocation();
   const pathname = location.pathname;
+  const subtitle = signedInSubtitle(profile);
 
   return (
     <aside 
@@ -91,6 +103,7 @@ export function Sidebar({ navLinks, profile }: SidebarProps) {
             <div className="text-sm font-medium text-white truncate">
               {profile.full_name ?? profile.email}
             </div>
+            <div className="text-xs text-white/60 mt-1 truncate">{subtitle}</div>
           </div>
           <div className="px-4">
             <SignOutButton variant="sidebar" />
@@ -100,4 +113,3 @@ export function Sidebar({ navLinks, profile }: SidebarProps) {
     </aside>
   );
 }
-

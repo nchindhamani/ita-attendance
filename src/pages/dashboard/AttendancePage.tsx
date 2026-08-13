@@ -74,27 +74,49 @@ export default function AttendancePage() {
     }
   }, [dateParam, sectionId, searchParams, navigate])
 
-  // Auto-redirect teachers to their assigned section
+  // Teachers: only current-year classroom assignment (same rule as admin lists)
   useEffect(() => {
-    if (authLoading || !profile) return
+    if (authLoading || !profile || profile.role !== 'teacher') return
 
-    const fetchTeacherSection = async () => {
-      if (!sectionId && profile.role === 'teacher') {
-        const { data: assignments } = await supabase
-          .from('teacher_sections')
-          .select('section_id')
-          .eq('teacher_id', profile.id)
-          .limit(1)
+    const resolveTeacherSection = async () => {
+      const currentYear = getCurrentSchoolYear()
+      const { data: assignments } = await supabase
+        .from('teacher_sections')
+        .select('section_id, section:sections!inner(school_year)')
+        .eq('teacher_id', profile.id)
+        .eq('sections.school_year', currentYear)
+        .limit(1)
 
-        const assignedSectionId = assignments?.[0]?.section_id
+      const assignedSectionId = assignments?.[0]?.section_id ?? null
+
+      if (!sectionId) {
         if (assignedSectionId) {
           navigate(`/attendance?section=${assignedSectionId}`, { replace: true })
-          return
+        } else {
+          setInitialLoading(false)
+          setError(null)
+        }
+        return
+      }
+
+      // Stale prior-year section in the URL → bounce to current-year class
+      const { data: sectionData } = await supabase
+        .from('sections')
+        .select('school_year')
+        .eq('id', sectionId)
+        .maybeSingle()
+
+      if (sectionData?.school_year && sectionData.school_year !== currentYear) {
+        if (assignedSectionId) {
+          navigate(`/attendance?section=${assignedSectionId}`, { replace: true })
+        } else {
+          navigate('/attendance', { replace: true })
+          setInitialLoading(false)
         }
       }
     }
 
-    fetchTeacherSection()
+    resolveTeacherSection()
   }, [profile, sectionId, navigate, authLoading])
 
   // Function to fetch students (extracted for reuse)
@@ -311,10 +333,14 @@ export default function AttendancePage() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Select a section</CardTitle>
+          <CardTitle>
+            {profile?.role === 'teacher' ? 'No class assigned' : 'Select a section'}
+          </CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          Choose a section from your dashboard to take attendance.
+          {profile?.role === 'teacher'
+            ? `No class is assigned for ${getCurrentSchoolYear()}. Please contact an admin.`
+            : 'Choose a section from your dashboard to take attendance.'}
         </CardContent>
       </Card>
     )
@@ -341,15 +367,15 @@ export default function AttendancePage() {
     workingDays.length === 0
       ? `No working days uploaded for the ${calendarType === 'hscp' ? 'HSCP' : 'Regular'} calendar (${section.school_year}). Upload them under Working Days first.`
       : !isWorkingDay
-        ? 'Selected date is not a working day. Choose a listed class day from your upload.'
+        ? 'Selected day is not a working day. Choose a working day to save attendance.'
         : isFutureDate
-          ? `This is a future class day (next: ${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
+          ? `This is a future class day (${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
           : null
   const locked = Boolean(lockMessage)
 
   const handleDateChange = (newDate: string) => {
     if (workingDays.length && !workingDays.includes(newDate)) {
-      toast.error('That date is not a working day. Choose a listed class day.')
+      toast.error('Selected day is not a working day. Choose a working day to save attendance.')
       return
     }
     setSelectedDate(newDate)
@@ -363,7 +389,7 @@ export default function AttendancePage() {
     <div className="space-y-3">
       <div>
         <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">
-          Attendance - Grade {section.grade} {section.section}
+          Mark Attendance - Grade {section.grade} {section.section}
         </h2>
       </div>
       <AttendanceEditor

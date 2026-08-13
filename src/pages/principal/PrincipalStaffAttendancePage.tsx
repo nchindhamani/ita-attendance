@@ -212,15 +212,15 @@ export default function PrincipalStaffAttendancePage() {
     workingDays.length === 0
       ? `No working days uploaded for the Regular calendar (${schoolYear}). Upload them under Working Days first.`
       : !isWorkingDay
-        ? 'Selected date is not a working day. Choose a listed class day from your upload.'
+        ? 'Selected day is not a working day. Choose a working day to save attendance.'
         : isFutureDate
-          ? `This is a future class day (next: ${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
+          ? `This is a future class day (${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
           : null
   const locked = Boolean(lockMessage)
 
   const handleDateChange = (newDate: string) => {
     if (workingDays.length && !workingDays.includes(newDate)) {
-      toast.error('That date is not a working day. Choose a listed class day.')
+      toast.error('Selected day is not a working day. Choose a working day to save attendance.')
       return
     }
     setSelectedDate(newDate)

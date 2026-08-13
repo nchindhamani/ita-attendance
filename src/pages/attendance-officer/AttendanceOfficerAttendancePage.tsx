@@ -214,7 +214,7 @@ export default function AttendanceOfficerAttendancePage() {
               value={selectedDate}
               onChange={(newDate) => {
                 if (workingDays.length && !workingDays.includes(newDate)) {
-                  toast.error('That date is not a working day. Choose a listed class day.')
+                  toast.error('Selected day is not a working day. Choose a working day to save attendance.')
                   return
                 }
                 setSelectedDate(newDate)
@@ -223,7 +223,7 @@ export default function AttendanceOfficerAttendancePage() {
               max={pickerMax}
               allowedDates={workingDays.length > 0 ? workingDays : undefined}
               onDisallowedDate={() => {
-                toast.error('That date is not a working day. Choose a listed class day.')
+                toast.error('Selected day is not a working day. Choose a working day to save attendance.')
               }}
               className="h-10 min-w-[180px]"
             />

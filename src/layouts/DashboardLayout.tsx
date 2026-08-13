@@ -66,10 +66,11 @@ export default function DashboardLayout() {
       case "teacher":
       default:
         return [
-          { href: "/attendance", label: "Attendance" },
-          { href: "/teacher", label: "My Class" },
+          { href: "/attendance", label: "Mark Attendance" },
+          { href: "/history", label: "Date Lookup" },
           { href: "/teacher/student-attendance", label: "Student Lookup" },
-          { href: "/profile", label: "Profile" },
+          { href: "/teacher", label: "My Students" },
+          { href: "/profile", label: "My Profile" },
         ]
     }
   }

@@ -27,8 +27,7 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
   ],
   teacher: [
     "Edit attendance for own classes",
-    "View student profiles",
-    "Add students"
+    "View student profiles"
   ],
   principal: [
     "View student attendance",
@@ -51,11 +50,21 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   admin: "Full access to all features",
-  teacher: "Manage classes and attendance",
+  teacher: "View class roster and record attendance",
   principal: "Read-only access to all data",
   attendance_officer: "Manage attendance only",
   hscp_officer: "Manage HSCP teachers and their students",
   volunteer: "No portal access - attendance tracked by principals"
+};
+
+/** Short display labels for the signed-in user subtitle. */
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: "Admin",
+  teacher: "Teacher",
+  principal: "Principal",
+  attendance_officer: "Attendance Officer",
+  hscp_officer: "HSCP Officer",
+  volunteer: "Volunteer",
 };
 
 export const ROLE_ICONS: Record<Role, string> = {

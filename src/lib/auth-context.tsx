@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createSupabaseBrowserClient } from './supabase/client'
+import { getCurrentSchoolYear } from './school-year'
 import { Profile, Role } from './types'
 
 const supabase = createSupabaseBrowserClient()
@@ -52,11 +53,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function fetchProfile(userId: string) {
     const { data } = await supabase
       .from('profiles')
-      .select('id,email,full_name,role,is_active,is_approved')
+      .select('id,email,full_name,role,grade,section,is_active,is_approved')
       .eq('id', userId)
       .maybeSingle<Profile>()
 
-    setProfile(data ?? null)
+    if (!data) {
+      setProfile(null)
+      setLoading(false)
+      return
+    }
+
+    // Teachers: prefer current-year classroom assignment over profiles.grade/section
+    if (data.role === 'teacher') {
+      const year = getCurrentSchoolYear()
+      const { data: assignments } = await supabase
+        .from('teacher_sections')
+        .select('section:sections!inner(grade,section,school_year)')
+        .eq('teacher_id', userId)
+        .eq('sections.school_year', year)
+        .limit(1)
+
+      const sectionRow = assignments?.[0]?.section
+      const section = Array.isArray(sectionRow) ? sectionRow[0] : sectionRow
+      if (section && 'grade' in section) {
+        data.grade = (section.grade as string | null) ?? null
+        data.section = (section.section as string | null) ?? null
+      } else {
+        data.grade = null
+        data.section = null
+      }
+    }
+
+    setProfile(data)
     setLoading(false)
   }
 

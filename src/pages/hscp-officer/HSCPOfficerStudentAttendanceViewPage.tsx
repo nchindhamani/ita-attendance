@@ -89,9 +89,9 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
     workingDays.length === 0
       ? `No working days uploaded for the HSCP calendar (${schoolYear}). Upload them under Working Days first.`
       : !isWorkingDay
-        ? 'Selected date is not a working day. Choose a listed class day from your upload.'
+        ? 'Selected day is not a working day. Choose a working day to save attendance.'
         : isFutureDate
-          ? `This is a future class day (next: ${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
+          ? `This is a future class day (${formatIsoAsMdY(selectedDate)}). You can view it, but saving opens on/after that date.`
           : null
 
   // Fetch available HSCP grades on mount
@@ -376,7 +376,7 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
   // ─── HANDLERS ────────────────────────────────────────────────
   const handleDateChange = (newDate: string) => {
     if (workingDays.length && !workingDays.includes(newDate)) {
-      toast.error('That date is not a working day. Choose a listed class day.')
+      toast.error('Selected day is not a working day. Choose a working day to save attendance.')
       return
     }
     setSelectedDate(newDate)
@@ -600,7 +600,7 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
                 max={pickerMax}
                 allowedDates={workingDays.length > 0 ? workingDays : undefined}
                 onDisallowedDate={() => {
-                  toast.error('That date is not a working day. Choose a listed class day.')
+                  toast.error('Selected day is not a working day. Choose a working day to save attendance.')
                 }}
                 onChange={(newDate) => handleDateChange(newDate)}
                 className="w-full"

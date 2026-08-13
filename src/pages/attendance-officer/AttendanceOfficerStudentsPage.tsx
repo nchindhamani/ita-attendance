@@ -151,9 +151,13 @@ export default function AttendanceOfficerStudentsPage() {
                   <p className="text-sm text-muted-foreground">
                     ID: {student.student_identifier || 'N/A'}
                   </p>
-                  {student.grade && student.section && (
+                  {student.grade && (
                     <p className="text-sm text-muted-foreground">
-                      {student.grade}/{student.section}
+                      {student.grade.toUpperCase().startsWith('HSCP')
+                        ? `Grade: ${student.grade}`
+                        : student.section
+                          ? `Class: Grade ${student.grade} - ${student.section}`
+                          : `Grade: ${student.grade}`}
                     </p>
                   )}
                   <p className="text-sm text-muted-foreground">

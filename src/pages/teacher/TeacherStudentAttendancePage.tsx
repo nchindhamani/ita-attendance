@@ -66,26 +66,48 @@ export default function TeacherStudentAttendancePage() {
     setSectionInfo(null)
 
     try {
-      // Get teacher's assigned sections for current school year
+      // Current-year assignments; for HSCP, allow any section in the same grade
+      // (same rule as My Class roster)
       const { data: assignments } = await supabase
         .from('teacher_sections')
-        .select('section:sections(id,school_year)')
+        .select('section:sections!inner(id,grade,school_year)')
         .eq('teacher_id', profile!.id)
         .eq('sections.school_year', year)
 
-      const allowedSectionIds = new Set(
-        (assignments ?? [])
-          .map((item) => {
-            const section = Array.isArray(item.section) ? item.section[0] : item.section
-            return section?.id
-          })
-          .filter(Boolean) as string[]
-      )
+      const assignedSections = (assignments ?? [])
+        .map((item) => {
+          const section = Array.isArray(item.section) ? item.section[0] : item.section
+          return section && 'id' in section
+            ? {
+                id: section.id as string,
+                grade: (section as { grade?: string | null }).grade ?? null,
+              }
+            : null
+        })
+        .filter((s): s is { id: string; grade: string | null } => Boolean(s?.id))
 
-      if (allowedSectionIds.size === 0) {
+      if (assignedSections.length === 0) {
         setErrorMessage('No class is assigned to your account yet.')
         setLoading(false)
         return
+      }
+
+      const allowedSectionIds = new Set<string>()
+      for (const assigned of assignedSections) {
+        const isHSCPGrade =
+          Boolean(assigned.grade) && assigned.grade!.toUpperCase().startsWith('HSCP')
+        if (isHSCPGrade && assigned.grade) {
+          const { data: gradeSections } = await supabase
+            .from('sections')
+            .select('id')
+            .eq('grade', assigned.grade)
+            .eq('school_year', year)
+          for (const s of gradeSections ?? []) {
+            if (s.id) allowedSectionIds.add(s.id)
+          }
+        } else {
+          allowedSectionIds.add(assigned.id)
+        }
       }
 
       // Search for student
@@ -192,7 +214,7 @@ export default function TeacherStudentAttendancePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">Student Attendance Lookup</h2>
+        <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">Student Lookup</h2>
         <p className="text-sm text-muted-foreground">
           Search by ITA Student ID for the current school year ({schoolYear}).
         </p>
@@ -233,7 +255,9 @@ export default function TeacherStudentAttendancePage() {
               <p className="text-sm text-[#64748b]">ID: {student.student_identifier ?? '-'}</p>
               {sectionInfo && (
                 <p className="text-sm text-[#64748b]">
-                  Class: Grade {sectionInfo.grade} - {sectionInfo.section}
+                  {sectionInfo.grade.toUpperCase().startsWith('HSCP')
+                    ? `Grade: ${sectionInfo.grade}`
+                    : `Class: Grade ${sectionInfo.grade} - ${sectionInfo.section}`}
                 </p>
               )}
               {profile?.full_name && (

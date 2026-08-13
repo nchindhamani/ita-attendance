@@ -50,27 +50,47 @@ export default function HistoryPage() {
     onDateResolved: (iso) => setPickerDate(iso),
   })
 
-  // Auto-redirect teachers to their assigned section
+  // Teachers: only current-year classroom assignment (same rule as admin lists)
   useEffect(() => {
-    if (authLoading || !profile) return
+    if (authLoading || !profile || profile.role !== 'teacher') return
 
-    const fetchTeacherSection = async () => {
-      if (!sectionId && profile.role === 'teacher') {
-        const { data: assignments } = await supabase
-          .from('teacher_sections')
-          .select('section_id')
-          .eq('teacher_id', profile.id)
-          .limit(1)
+    const resolveTeacherSection = async () => {
+      const currentYear = getCurrentSchoolYear()
+      const { data: assignments } = await supabase
+        .from('teacher_sections')
+        .select('section_id, section:sections!inner(school_year)')
+        .eq('teacher_id', profile.id)
+        .eq('sections.school_year', currentYear)
+        .limit(1)
 
-        const assignedSectionId = assignments?.[0]?.section_id
+      const assignedSectionId = assignments?.[0]?.section_id ?? null
+
+      if (!sectionId) {
         if (assignedSectionId) {
           navigate(`/history?section=${assignedSectionId}&date=${selectedDate}`, { replace: true })
-          return
+        } else {
+          setLoading(false)
+        }
+        return
+      }
+
+      const { data: sectionData } = await supabase
+        .from('sections')
+        .select('school_year')
+        .eq('id', sectionId)
+        .maybeSingle()
+
+      if (sectionData?.school_year && sectionData.school_year !== currentYear) {
+        if (assignedSectionId) {
+          navigate(`/history?section=${assignedSectionId}&date=${selectedDate}`, { replace: true })
+        } else {
+          navigate(`/history?date=${selectedDate}`, { replace: true })
+          setLoading(false)
         }
       }
     }
 
-    fetchTeacherSection()
+    resolveTeacherSection()
   }, [profile, sectionId, navigate, authLoading, selectedDate])
 
   // Fetch attendance history
@@ -184,10 +204,14 @@ export default function HistoryPage() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Select a section</CardTitle>
+          <CardTitle>
+            {profile?.role === 'teacher' ? 'No class assigned' : 'Select a section'}
+          </CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          Choose a section from your dashboard to view attendance history.
+          {profile?.role === 'teacher'
+            ? `No class is assigned for ${schoolYear}. Please contact an admin.`
+            : 'Choose a section from your dashboard to view attendance history.'}
         </CardContent>
       </Card>
     )
@@ -197,7 +221,7 @@ export default function HistoryPage() {
     <div className="space-y-6">
       <div className="space-y-3">
         <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight mb-3">
-          History - Grade {section?.grade} {section?.section}
+          Date Lookup - Grade {section?.grade} {section?.section}
         </h2>
         <p className="text-lg text-[#64748b] font-normal leading-relaxed">
           Review or download attendance from a prior date.
@@ -217,11 +241,11 @@ export default function HistoryPage() {
                 max={pickerMax}
                 allowedDates={workingDays.length > 0 ? workingDays : undefined}
                 onDisallowedDate={() => {
-                  toast.error('That date is not a working day. Choose a listed class day.')
+                  toast.error('Selected day is not a working day. Choose a working day to save attendance.')
                 }}
                 onChange={(newDate) => {
                   if (workingDays.length && !workingDays.includes(newDate)) {
-                    toast.error('That date is not a working day. Choose a listed class day.')
+                    toast.error('Selected day is not a working day. Choose a working day to save attendance.')
                     return
                   }
                   setPickerDate(newDate)

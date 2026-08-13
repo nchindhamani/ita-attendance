@@ -1909,10 +1909,17 @@ async def add_student(
     authorization: Optional[str] = Header(None)
 ):
     """
-    Add a single student to a section
-    Migrated from TypeScript addStudent Server Action
+    Add a single student to a section.
+    Only admins and HSCP officers may add students.
     """
     try:
+        current_role = profile.get("role")
+        if current_role not in ["admin", "hscp_officer"]:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Only admins and HSCP officers can add students."},
+            )
+
         log_info(f"add_student called - sectionId: {payload.sectionId}, studentIdentifier: {payload.studentIdentifier}, fullName: {payload.fullName}")
         
         if not payload.sectionId:
@@ -2124,10 +2131,10 @@ async def add_hscp_student(
     """
     try:
         current_role = profile.get("role")
-        if current_role not in ["hscp_officer", "admin", "principal"]:
+        if current_role not in ["hscp_officer", "admin"]:
             return JSONResponse(
                 status_code=403,
-                content={"error": "Only HSCP officers, admins, or principals can add HSCP students."}
+                content={"error": "Only admins and HSCP officers can add HSCP students."}
             )
 
         # Normalize the grade
@@ -3058,10 +3065,17 @@ async def update_student(
     authorization: Optional[str] = Header(None)
 ):
     """
-    Update an existing student
-    Migrated from TypeScript updateStudent Server Action
+    Update an existing student.
+    Only admins and HSCP officers may edit students.
     """
     try:
+        current_role = profile.get("role")
+        if current_role not in ["admin", "hscp_officer"]:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Only admins and HSCP officers can edit students."},
+            )
+
         log_info(f"update_student called - studentId: {payload.studentId}, studentIdentifier: {payload.studentIdentifier}, fullName: {payload.fullName}")
         
         # Validate student identifier is a number
@@ -3932,10 +3946,17 @@ async def bulk_add_students(
     authorization: Optional[str] = Header(None)
 ):
     """
-    Add multiple students from CSV upload
-    Migrated from TypeScript addStudentsFromCsv Server Action
+    Add multiple students from CSV upload.
+    Only admins and HSCP officers may bulk-add students.
     """
     try:
+        current_role = profile.get("role")
+        if current_role not in ["admin", "hscp_officer"]:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Only admins and HSCP officers can add students."},
+            )
+
         log_info(f"bulk_add_students called - sectionId: {payload.sectionId}, studentCount: {len(payload.students)}")
         
         if not payload.sectionId:

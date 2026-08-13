@@ -437,7 +437,7 @@ export function OtherStaffAttendanceEditor({
                   max={pickerMax}
                   allowedDates={sortedAllowed.length > 0 ? sortedAllowed : undefined}
                   onDisallowedDate={() => {
-                    toast.error("That date is not a working day. Choose a listed class day.");
+                    toast.error("Selected day is not a working day. Choose a working day to save attendance.");
                   }}
                   onChange={(newDate: string) => {
                     if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate) || !onDateChange) return;
