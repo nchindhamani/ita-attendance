@@ -142,6 +142,7 @@ export default function AttendancePage() {
           .select('id,full_name,student_identifier')
           .in('section_id', sectionIds)
           .eq('school_year', sectionToFetch.school_year || getCurrentSchoolYear())
+          .eq('is_active', true)
           .order('full_name', { ascending: true })
         
         studentsData = result.data
@@ -156,6 +157,7 @@ export default function AttendancePage() {
         .from('students')
         .select('id,full_name,student_identifier')
         .eq('section_id', sectionToFetch.id)
+        .eq('is_active', true)
         .order('full_name', { ascending: true })
       
       studentsData = result.data

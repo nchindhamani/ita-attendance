@@ -25,6 +25,7 @@ type Teacher = {
   school_year: string | null
   mobile: string | null
   room_number: string | null
+  description: string | null
   is_active: boolean
   is_approved: boolean
   requires_password_reset: boolean | null
@@ -48,6 +49,7 @@ export default function HSCPOfficerTeacherDetailPage() {
     grade: '',
     section: '',
     room_number: '',
+    description: '',
   })
   const [lastAssignment, setLastAssignment] = useState<{
     grade: string
@@ -118,6 +120,7 @@ export default function HSCPOfficerTeacherDetailPage() {
           grade: foundTeacher.grade || '',
           section: foundTeacher.section || '',
           room_number: foundTeacher.room_number || '',
+          description: foundTeacher.description || '',
         })
 
         // Prior-year assignment for history message
@@ -162,6 +165,7 @@ export default function HSCPOfficerTeacherDetailPage() {
 
   const handleEdit = () => {
     if (!teacher) return
+    setActiveTab('details')
     setIsEditing(true)
     setEditFormData({
       full_name: teacher.full_name || '',
@@ -170,6 +174,7 @@ export default function HSCPOfficerTeacherDetailPage() {
       grade: teacher.grade || '',
       section: teacher.section || '',
       room_number: teacher.room_number || '',
+      description: teacher.description || '',
     })
   }
 
@@ -183,6 +188,7 @@ export default function HSCPOfficerTeacherDetailPage() {
         grade: teacher.grade || '',
         section: teacher.section || '',
         room_number: teacher.room_number || '',
+        description: teacher.description || '',
       })
     }
   }
@@ -259,6 +265,9 @@ export default function HSCPOfficerTeacherDetailPage() {
       }
       if (editFormData.room_number !== (teacher.room_number || '')) {
         payload.room_number = editFormData.room_number.trim() || null
+      }
+      if (editFormData.description !== (teacher.description || '')) {
+        payload.description = editFormData.description.trim() || null
       }
 
       if (
@@ -351,18 +360,49 @@ export default function HSCPOfficerTeacherDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <Button
-            variant="ghost"
-            onClick={() => navigate('/hscp-officer/users')}
-            className="mb-4"
-          >
-            ← Back to Staff Directory
-          </Button>
+      <div>
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/hscp-officer/users')}
+          className="mb-4"
+        >
+          ← Back to Staff Directory
+        </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">
             {teacher.full_name || 'Unknown'}
           </h2>
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            {!isEditing ? (
+              <>
+                {teacher.requires_password_reset === true && teacher.email && !teacher.email.startsWith('noemail-') && (
+                  <Button
+                    onClick={handleShowTemporaryPassword}
+                    variant="outline"
+                    className="flex items-center gap-2"
+                  >
+                    <Key className="w-4 h-4" />
+                    Generate new OTP
+                  </Button>
+                )}
+                <Button onClick={handleEdit} variant="outline" className="flex items-center gap-2">
+                  <Edit className="w-4 h-4" />
+                  Edit Profile
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button onClick={handleCancelEdit} variant="outline" className="flex items-center gap-2">
+                  <X className="w-4 h-4" />
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveEdit} disabled={isSaving} className="flex items-center gap-2">
+                  <Save className="w-4 h-4" />
+                  {isSaving ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -441,40 +481,6 @@ export default function HSCPOfficerTeacherDetailPage() {
 
       {activeTab === 'details' && (
         <>
-      {/* Edit Button */}
-      <div className="flex justify-end gap-2">
-        {!isEditing ? (
-          <>
-            {/* Show button if requires_password_reset is true and email exists */}
-            {teacher.requires_password_reset === true && teacher.email && !teacher.email.startsWith('noemail-') && (
-              <Button 
-                onClick={handleShowTemporaryPassword} 
-                variant="outline" 
-                className="flex items-center gap-2"
-              >
-                <Key className="w-4 h-4" />
-                Generate new OTP
-              </Button>
-            )}
-            <Button onClick={handleEdit} variant="outline" className="flex items-center gap-2">
-              <Edit className="w-4 h-4" />
-              Edit Profile
-            </Button>
-          </>
-        ) : (
-          <div className="flex gap-2">
-            <Button onClick={handleCancelEdit} variant="outline" className="flex items-center gap-2">
-              <X className="w-4 h-4" />
-              Cancel
-            </Button>
-            <Button onClick={handleSaveEdit} disabled={isSaving} className="flex items-center gap-2">
-              <Save className="w-4 h-4" />
-              {isSaving ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </div>
-        )}
-      </div>
-
       {/* Details */}
       <div className="space-y-6">
         {/* Contact Information */}
@@ -507,6 +513,19 @@ export default function HSCPOfficerTeacherDetailPage() {
                 />
               ) : (
                 <p className="text-base">{teacher.mobile || '-'}</p>
+              )}
+            </div>
+            <div>
+              <Label className="text-sm font-medium text-muted-foreground">Description</Label>
+              {isEditing ? (
+                <Input
+                  value={editFormData.description}
+                  onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                  className="mt-1"
+                  placeholder="Optional description"
+                />
+              ) : (
+                <p className="text-base">{teacher.description || '-'}</p>
               )}
             </div>
           </CardContent>
@@ -583,6 +602,7 @@ export default function HSCPOfficerTeacherDetailPage() {
               <label className="text-sm font-medium text-muted-foreground">Created</label>
               <p className="text-base">
                 {new Date(teacher.created_at).toLocaleString('en-US', {
+                  timeZone: 'America/Los_Angeles',
                   year: 'numeric',
                   month: 'numeric',
                   day: 'numeric',
@@ -590,6 +610,7 @@ export default function HSCPOfficerTeacherDetailPage() {
                   minute: '2-digit',
                   second: '2-digit',
                 })}
+                <span className="block text-xs text-muted-foreground mt-1">Pacific Time</span>
               </p>
             </div>
           </CardContent>

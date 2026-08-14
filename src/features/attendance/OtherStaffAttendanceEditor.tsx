@@ -231,8 +231,8 @@ export function OtherStaffAttendanceEditor({
       const entry = entries.find((e) => e.staffId === staff.id);
       return {
         "Name": staff.full_name,
-        "Role": staff.role === 'volunteer' && staff.description 
-          ? `Volunteer - ${staff.description}` 
+        "Role": staff.role === 'volunteer' && staff.description
+          ? `Volunteer - ${staff.description}`
           : formatRoleLabel(staff.role),
         "Email": staff.email || "",
         "Status": entry?.status || "Not Recorded",

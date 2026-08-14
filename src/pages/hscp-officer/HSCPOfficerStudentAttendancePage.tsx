@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { StudentAttendanceSearch } from '@/features/admin/StudentAttendanceSearch'
 import { HSCPBulkStudentUpload } from '@/features/hscp/HSCPBulkStudentUpload'
 import { toast } from 'sonner'
-import { Upload, UserPlus } from 'lucide-react'
+import { Upload, UserPlus, UserX, UserCheck } from 'lucide-react'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -24,6 +24,8 @@ interface Student {
   student_identifier: number | null
   section_id: string | null
   school_year: string
+  is_active?: boolean | null
+  discontinued_at?: string | null
 }
 
 interface AttendanceRecord {
@@ -54,6 +56,7 @@ export default function HSCPOfficerStudentAttendancePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [hscpSections, setHscpSections] = useState<HSCPSection[]>([])
   const [selectedHscpTab, setSelectedHscpTab] = useState<string>('Reading')
+  const [statusPending, setStatusPending] = useState(false)
 
   // Add Student form state (previously used by dialog; now used by inline section)
   // PREVIOUS: const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -177,6 +180,8 @@ export default function HSCPOfficerStudentAttendancePage() {
             student_identifier,
             section_id,
             school_year,
+            is_active,
+            discontinued_at,
             sections!inner(grade, section)
           `)
           .eq('student_identifier', studentIdNum)
@@ -203,6 +208,8 @@ export default function HSCPOfficerStudentAttendancePage() {
           student_identifier: students.student_identifier,
           section_id: students.section_id,
           school_year: students.school_year,
+          is_active: (students as { is_active?: boolean | null }).is_active ?? true,
+          discontinued_at: (students as { discontinued_at?: string | null }).discontinued_at ?? null,
         })
         setSectionInfo({ grade: section.grade, section: section.section })
 
@@ -262,6 +269,43 @@ export default function HSCPOfficerStudentAttendancePage() {
   }, [studentIdInput, yearInput])
 
   // Handle Add Student
+  const handleSetActiveStatus = async (isActive: boolean) => {
+    if (!student || statusPending) return
+    try {
+      setStatusPending(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated. Please sign in again.')
+        setStatusPending(false)
+        return
+      }
+      const response = await fetch(`/api/admin/students/${student.id}/status`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ is_active: isActive }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || data.detail || 'Failed to update student status.')
+        setStatusPending(false)
+        return
+      }
+      setStudent({
+        ...student,
+        is_active: isActive,
+        discontinued_at: isActive ? null : new Date().toISOString(),
+      })
+      toast.success(data.message || (isActive ? 'Student reactivated.' : 'Student discontinued.'))
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'An unexpected error occurred.')
+    } finally {
+      setStatusPending(false)
+    }
+  }
+
   const handleAddStudent = async () => {
     if (!newStudentGrade) {
       toast.error('Please select an HSCP grade.')
@@ -358,36 +402,10 @@ export default function HSCPOfficerStudentAttendancePage() {
           HSCP Student Management
         </h2>
         <p className="text-base text-muted-foreground">
-          Add HSCP students (bulk or one at a time), then search attendance records.
+          Add HSCP students (one at a time or in bulk), then search attendance records.
           School year: <span className="font-medium text-[#0f172a]">{currentSchoolYear}</span>
         </p>
       </div>
-
-      {/* Section 1: Bulk upload */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <Upload className="w-5 h-5 text-[#6366f1]" />
-            Upload Students in Bulk
-          </CardTitle>
-          <p className="text-sm text-muted-foreground font-normal pt-1">
-            Upload a CSV file to add many HSCP students at once.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] p-4 sm:p-5">
-            <HSCPBulkStudentUpload schoolYear={currentSchoolYear} />
-          </div>
-          <div className="text-sm text-muted-foreground space-y-1">
-            <p className="font-medium text-[#334155]">CSV format</p>
-            <p>Columns (in order): <span className="font-mono text-xs">Student ID, Student Name, Grade</span></p>
-            <p>Grade values: <span className="font-mono text-xs">HSCP1</span>, <span className="font-mono text-xs">HSCP2</span>, or <span className="font-mono text-xs">HSCP3</span></p>
-            <p className="font-mono text-xs bg-white border rounded px-2 py-1.5 inline-block mt-1">
-              9001,Arun Kumar,HSCP1
-            </p>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Section 2: Add single student */}
       <Card>
@@ -456,6 +474,32 @@ export default function HSCPOfficerStudentAttendancePage() {
         </CardContent>
       </Card>
 
+      {/* Section 1: Bulk upload */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <Upload className="w-5 h-5 text-[#6366f1]" />
+            Upload Students in Bulk
+          </CardTitle>
+          <p className="text-sm text-muted-foreground font-normal pt-1">
+            Upload a CSV file to add many HSCP students at once.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] p-4 sm:p-5">
+            <HSCPBulkStudentUpload schoolYear={currentSchoolYear} />
+          </div>
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p className="font-medium text-[#334155]">CSV format</p>
+            <p>Columns (in order): <span className="font-mono text-xs">Student ID, Student Name, Grade</span></p>
+            <p>Grade values: <span className="font-mono text-xs">HSCP1</span>, <span className="font-mono text-xs">HSCP2</span>, or <span className="font-mono text-xs">HSCP3</span></p>
+            <p className="font-mono text-xs bg-white border rounded px-2 py-1.5 inline-block mt-1">
+              9001,Arun Kumar,HSCP1
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Section 3: Lookup / search */}
       <Card>
         <CardHeader className="pb-3">
@@ -494,10 +538,44 @@ export default function HSCPOfficerStudentAttendancePage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Student Information</CardTitle>
+              <div className="flex items-start justify-between gap-4">
+                <CardTitle>Student Information</CardTitle>
+                <div className="flex flex-wrap gap-2">
+                  {student.is_active !== false && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      disabled={statusPending}
+                      onClick={() => handleSetActiveStatus(false)}
+                    >
+                      <UserX className="w-4 h-4" />
+                      {statusPending ? 'Updating...' : 'Mark Discontinued'}
+                    </Button>
+                  )}
+                  {student.is_active === false && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      disabled={statusPending}
+                      onClick={() => handleSetActiveStatus(true)}
+                    >
+                      <UserCheck className="w-4 h-4" />
+                      {statusPending ? 'Updating...' : 'Reactivate'}
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p><strong>Name:</strong> {student.full_name}</p>
+              <p><strong>Name:</strong> {student.full_name}
+                {student.is_active === false && (
+                  <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-800 font-medium">
+                    Discontinued
+                  </span>
+                )}
+              </p>
               <p><strong>Student ID:</strong> {student.student_identifier}</p>
               {sectionInfo && (
                 <p><strong>Grade:</strong> {sectionInfo.grade}</p>

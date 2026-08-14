@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { isValidEmail, validateTeacherSection } from '@/lib/utils'
 import { TemporaryPasswordDialog } from '@/components/admin/TemporaryPasswordDialog'
+import { StaffBulkUpload } from '@/features/admin/StaffBulkUpload'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -23,6 +25,7 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
     grade: '',
     section: '',
     room_number: '',
+    description: '',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
@@ -56,6 +59,17 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
         return
       }
 
+      const sectionCheck = validateTeacherSection(formData.grade, formData.section)
+      if (!sectionCheck.ok) {
+        toast.error(sectionCheck.error)
+        return
+      }
+
+      if (formData.email.trim() && !isValidEmail(formData.email)) {
+        toast.error('Invalid email format. Use an address like name@catamilacademy.org or name@gmail.com.')
+        return
+      }
+
       // Get session for authentication
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
@@ -71,6 +85,7 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
         grade: formData.grade.trim(),
         section: formData.section.trim(),
         room_number: formData.room_number.trim(),
+        description: formData.description.trim() || null,
       }
 
       // Email is optional
@@ -121,6 +136,7 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
         grade: '',
         section: '',
         room_number: '',
+        description: '',
       })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create HSCP teacher'
@@ -132,9 +148,13 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
   }
 
   return (
+    <div className="space-y-6">
     <Card>
       <CardHeader>
-        <CardTitle>Create New HSCP Teacher</CardTitle>
+        <CardTitle>Add a Single Staff</CardTitle>
+        <p className="text-sm text-muted-foreground font-normal pt-1">
+          Create one HSCP teacher at a time.
+        </p>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -144,7 +164,7 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
               id="full_name"
               value={formData.full_name}
               onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-              placeholder="Enter full name"
+              placeholder="First_Name Last_Name"
               required
             />
           </div>
@@ -159,7 +179,7 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
               placeholder="Enter email (optional)"
             />
             <p className="text-xs text-muted-foreground">
-              If no email is provided, a placeholder email will be created. The teacher can log in once an email is added.
+              Email is optional now, but required for the teacher to log in.
             </p>
           </div>
 
@@ -193,11 +213,11 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
               id="section"
               value={formData.section}
               onChange={(e) => setFormData({ ...formData, section: e.target.value })}
-              placeholder="e.g., A, B, 1"
+              placeholder="Reading, Writing, or Conversation"
               required
             />
             <p className="text-xs text-muted-foreground">
-              Reading, Writing, Conversation
+              Must be Reading, Writing, or Conversation.
             </p>
           </div>
 
@@ -209,6 +229,16 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
               onChange={(e) => setFormData({ ...formData, room_number: e.target.value })}
               placeholder="e.g., 101, 201"
               required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="description">Description (Optional)</Label>
+            <Input
+              id="description"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Optional description or title"
             />
           </div>
 
@@ -227,6 +257,7 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
                   grade: '',
                   section: '',
                   room_number: '',
+                  description: '',
                 })
               }}
             >
@@ -259,6 +290,9 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
         />
       )}
     </Card>
+
+    <StaffBulkUpload hscpOnly onSuccess={onTeacherCreated} />
+    </div>
   )
 }
 

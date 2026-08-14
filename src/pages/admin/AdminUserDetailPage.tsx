@@ -70,6 +70,7 @@ export default function AdminUserDetailPage() {
     grade: '',
     section: '',
     room_number: '',
+    description: '',
   })
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
   const [passwordData, setPasswordData] = useState<{
@@ -144,6 +145,7 @@ export default function AdminUserDetailPage() {
           grade: foundUser.grade || '',
           section: foundUser.section || '',
           room_number: foundUser.room_number || '',
+          description: foundUser.description || '',
         })
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to load user'
@@ -318,6 +320,7 @@ export default function AdminUserDetailPage() {
 
   const handleEdit = () => {
     if (!user) return
+    setActiveTab('details')
     setIsEditing(true)
     setEditFormData({
       full_name: user.full_name || '',
@@ -326,6 +329,7 @@ export default function AdminUserDetailPage() {
       grade: user.grade || '',
       section: user.section || '',
       room_number: user.room_number || '',
+      description: user.description || '',
     })
   }
 
@@ -339,6 +343,7 @@ export default function AdminUserDetailPage() {
         grade: user.grade || '',
         section: user.section || '',
         room_number: user.room_number || '',
+        description: user.description || '',
       })
     }
   }
@@ -373,6 +378,9 @@ export default function AdminUserDetailPage() {
       }
       if (editFormData.room_number !== (user.room_number || '')) {
         payload.room_number = editFormData.room_number.trim() || null
+      }
+      if (editFormData.description !== (user.description || '')) {
+        payload.description = editFormData.description.trim() || null
       }
 
       if (Object.keys(payload).length === 0) {
@@ -517,18 +525,49 @@ export default function AdminUserDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <Button
-            variant="ghost"
-            onClick={() => navigate('/admin/users?tab=directory')}
-            className="mb-4"
-          >
-            ← Back to Staff Directory
-          </Button>
+      <div>
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/admin/users?tab=directory')}
+          className="mb-4"
+        >
+          ← Back to Staff Directory
+        </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-[2.5rem] font-heading font-bold text-[#0f172a] leading-tight">
             {user.full_name || 'Unknown'}
           </h2>
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            {!isEditing ? (
+              <>
+                {user.requires_password_reset && user.email && (
+                  <Button
+                    onClick={handleShowTemporaryPassword}
+                    variant="outline"
+                    className="flex items-center gap-2"
+                  >
+                    <Key className="w-4 h-4" />
+                    Generate new OTP
+                  </Button>
+                )}
+                <Button onClick={handleEdit} variant="outline" className="flex items-center gap-2">
+                  <Edit className="w-4 h-4" />
+                  Edit Profile
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button onClick={handleCancelEdit} variant="outline" className="flex items-center gap-2">
+                  <X className="w-4 h-4" />
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveEdit} disabled={isSaving} className="flex items-center gap-2">
+                  <Save className="w-4 h-4" />
+                  {isSaving ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -626,39 +665,6 @@ export default function AdminUserDetailPage() {
       {/* Details Tab */}
       {activeTab === 'details' && (
         <div className="space-y-6">
-          {/* Edit Button */}
-          <div className="flex justify-end gap-2">
-            {!isEditing ? (
-              <>
-                {user.requires_password_reset && user.email && (
-                  <Button 
-                    onClick={handleShowTemporaryPassword} 
-                    variant="outline" 
-                    className="flex items-center gap-2"
-                  >
-                    <Key className="w-4 h-4" />
-                    Generate new OTP
-                  </Button>
-                )}
-                <Button onClick={handleEdit} variant="outline" className="flex items-center gap-2">
-                  <Edit className="w-4 h-4" />
-                  Edit Profile
-                </Button>
-              </>
-            ) : (
-              <div className="flex gap-2">
-                <Button onClick={handleCancelEdit} variant="outline" className="flex items-center gap-2">
-                  <X className="w-4 h-4" />
-                  Cancel
-                </Button>
-                <Button onClick={handleSaveEdit} disabled={isSaving} className="flex items-center gap-2">
-                  <Save className="w-4 h-4" />
-                  {isSaving ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </div>
-            )}
-          </div>
-
           {/* Contact Information */}
           <Card>
             <CardHeader>
@@ -707,6 +713,28 @@ export default function AdminUserDetailPage() {
                     ? `Volunteer - ${user.description}`
                     : user.role.replace('_', ' ')}
                 </p>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Description</Label>
+                {isEditing ? (
+                  <Input
+                    value={editFormData.description}
+                    onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                    className="mt-1"
+                    placeholder={
+                      user.role === 'volunteer'
+                        ? 'e.g., Parent Helper, Community Volunteer'
+                        : 'Optional description'
+                    }
+                  />
+                ) : (
+                  <p className="text-base">{user.description || '-'}</p>
+                )}
+                {user.role === 'volunteer' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Shown as &quot;Volunteer - Description&quot; in staff lists.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Approval Status</label>
@@ -825,6 +853,7 @@ export default function AdminUserDetailPage() {
                 <label className="text-sm font-medium text-muted-foreground">Created</label>
                 <p className="text-base">
                   {new Date(user.created_at).toLocaleString('en-US', {
+                    timeZone: 'America/Los_Angeles',
                     year: 'numeric',
                     month: 'numeric',
                     day: 'numeric',
@@ -832,6 +861,7 @@ export default function AdminUserDetailPage() {
                     minute: '2-digit',
                     second: '2-digit',
                   })}
+                  <span className="block text-xs text-muted-foreground mt-1">Pacific Time</span>
                 </p>
               </div>
             </CardContent>

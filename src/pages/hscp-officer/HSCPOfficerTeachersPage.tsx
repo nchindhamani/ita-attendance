@@ -20,6 +20,7 @@ type Teacher = {
   section: string | null
   school_year: string | null
   mobile: string | null
+  description: string | null
   is_active: boolean
   is_approved: boolean
   created_at: string

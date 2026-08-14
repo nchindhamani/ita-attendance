@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { StudentAttendanceSearch } from '@/features/admin/StudentAttendanceSearch'
 import { HSCPBulkStudentUpload } from '@/features/hscp/HSCPBulkStudentUpload'
 import { toast } from 'sonner'
-import { Trash2 } from 'lucide-react'
+import { Trash2, UserX, UserCheck } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,8 @@ interface Student {
   student_identifier: number | null
   section_id: string | null
   school_year: string
+  is_active?: boolean | null
+  discontinued_at?: string | null
 }
 
 interface AttendanceRecord {
@@ -43,6 +45,8 @@ export interface StudentLookupPageProps {
   basePath?: string
   title?: string
   canDelete?: boolean
+  /** Allow discontinue / reactivate (admin or HSCP officer) */
+  canManageStatus?: boolean
   /** Show HSCP bulk CSV upload (admins) */
   canBulkAddHscp?: boolean
 }
@@ -51,6 +55,7 @@ export function StudentLookupPage({
   basePath = '/admin/student-attendance',
   title = 'Student Attendance Lookup',
   canDelete = false,
+  canManageStatus = false,
   canBulkAddHscp = false,
 }: StudentLookupPageProps) {
   const [searchParams] = useSearchParams()
@@ -69,6 +74,7 @@ export function StudentLookupPage({
   const [selectedHscpTab, setSelectedHscpTab] = useState<string>('Reading')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [statusPending, setStatusPending] = useState(false)
   const [currentSchoolYear, setCurrentSchoolYear] = useState(getCurrentSchoolYear())
 
   useEffect(() => {
@@ -172,7 +178,7 @@ export function StudentLookupPage({
       try {
         const { data: foundStudent, error: studentError } = await supabase
           .from('students')
-          .select('id,full_name,student_identifier,section_id,school_year')
+          .select('id,full_name,student_identifier,section_id,school_year,is_active,discontinued_at')
           .eq('student_identifier', studentIdNum)
           .eq('school_year', yearInput)
           .maybeSingle()
@@ -290,6 +296,43 @@ export function StudentLookupPage({
     left_early: 'bg-[#e9d5ff] text-[#6b21a8]',
   }
 
+  const handleSetActiveStatus = async (isActive: boolean) => {
+    if (!student || statusPending) return
+    try {
+      setStatusPending(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated. Please sign in again.')
+        setStatusPending(false)
+        return
+      }
+      const response = await fetch(`/api/admin/students/${student.id}/status`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ is_active: isActive }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || data.detail || 'Failed to update student status.')
+        setStatusPending(false)
+        return
+      }
+      setStudent({
+        ...student,
+        is_active: isActive,
+        discontinued_at: isActive ? null : new Date().toISOString(),
+      })
+      toast.success(data.message || (isActive ? 'Student reactivated.' : 'Student discontinued.'))
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'An unexpected error occurred.')
+    } finally {
+      setStatusPending(false)
+    }
+  }
+
   const handleDeleteStudent = async () => {
     if (!student || deleting) return
     try {
@@ -369,9 +412,16 @@ export function StudentLookupPage({
           <div className="bg-white rounded-[16px] p-6 shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-[1.75rem] font-heading font-bold text-[#0f172a] leading-tight mb-4">
-                  {student.full_name}
-                </h3>
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <h3 className="text-[1.75rem] font-heading font-bold text-[#0f172a] leading-tight">
+                    {student.full_name}
+                  </h3>
+                  {student.is_active === false && (
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-800 font-medium">
+                      Discontinued
+                    </span>
+                  )}
+                </div>
                 <div className="space-y-2">
                   <p className="text-sm text-[#64748b]">ID: {student.student_identifier ?? '-'}</p>
                   {sectionInfo && (
@@ -386,17 +436,43 @@ export function StudentLookupPage({
                   )}
                 </div>
               </div>
-              {canDelete && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="gap-2 shrink-0"
-                  onClick={() => setDeleteConfirmOpen(true)}
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Student
-                </Button>
-              )}
+              <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                {canManageStatus && student.is_active !== false && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={statusPending}
+                    onClick={() => handleSetActiveStatus(false)}
+                  >
+                    <UserX className="w-4 h-4" />
+                    {statusPending ? 'Updating...' : 'Mark Discontinued'}
+                  </Button>
+                )}
+                {canManageStatus && student.is_active === false && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={statusPending}
+                    onClick={() => handleSetActiveStatus(true)}
+                  >
+                    <UserCheck className="w-4 h-4" />
+                    {statusPending ? 'Updating...' : 'Reactivate'}
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Student
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 

@@ -530,6 +530,22 @@ def capitalize_name(name: str) -> str:
     
     return " ".join(result)
 
+def is_valid_email(email: str) -> bool:
+    """
+    Basic email format check. Accepts school emails (including +aliases)
+    and common providers (Gmail, Yahoo, etc.). Empty is not valid here —
+    callers should skip this when email is optional/omitted.
+    """
+    if not email or not str(email).strip():
+        return False
+    # local@domain.tld — allows dots, plus, hyphens, underscores in local part
+    return bool(
+        re.match(
+            r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$",
+            str(email).strip(),
+        )
+    )
+
 def audit_actor_from_profile(profile: Optional[dict]) -> str:
     """
     Audit actor for sections / working_days.
@@ -1007,6 +1023,31 @@ class CreateStaffResponse(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
 
+class BulkCreateStaffItem(BaseModel):
+    full_name: str
+    role: str
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    grade: Optional[str] = None
+    section: Optional[str] = None
+    room_number: Optional[str] = None
+    description: Optional[str] = None
+
+class BulkCreateStaffRequest(BaseModel):
+    staff: list[BulkCreateStaffItem]
+
+class BulkCreateStaffErrorItem(BaseModel):
+    row: Optional[int] = None
+    full_name: str
+    reason: str
+
+class BulkCreateStaffResponse(BaseModel):
+    success: Optional[str] = None
+    error: Optional[str] = None
+    addedCount: Optional[int] = None
+    failedCount: Optional[int] = None
+    errors: Optional[list[BulkCreateStaffErrorItem]] = None
+
 class AdminUpdateProfileRequest(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
@@ -1014,6 +1055,7 @@ class AdminUpdateProfileRequest(BaseModel):
     grade: Optional[str] = None
     section: Optional[str] = None
     room_number: Optional[str] = None
+    description: Optional[str] = None
 
 class AdminUpdateProfileResponse(BaseModel):
     success: bool
@@ -1096,6 +1138,26 @@ class DeleteClassroomRequest(BaseModel):
     confirmTeachers: Optional[bool] = False
 
 HSCP_CLASSROOM_SECTIONS = ["Conversation", "Reading", "Writing"]
+
+def validate_and_normalize_teacher_section(grade: str, section: str):
+    """
+    Teacher section rules:
+    - HSCP grades: Reading, Writing, or Conversation (any case)
+    - Regular grades: a single letter A–Z
+    Returns (normalized_section, error_message). error_message is None when valid.
+    """
+    if not section or not str(section).strip():
+        return None, "Section is required for teachers."
+    raw = str(section).strip()
+    if is_hscp_grade(grade or ""):
+        by_lower = {s.lower(): s for s in HSCP_CLASSROOM_SECTIONS}
+        canonical = by_lower.get(raw.lower())
+        if not canonical:
+            return None, "For HSCP teachers, section must be Reading, Writing, or Conversation."
+        return canonical, None
+    if not re.fullmatch(r"[A-Za-z]", raw):
+        return None, "For regular teachers, section must be a single letter (A–Z)."
+    return raw.upper(), None
 
 class AddStudentByGradeRequest(BaseModel):
     grade: str
@@ -1180,6 +1242,7 @@ class UserResponse(BaseModel):
     room_number: Optional[str] = None
     school_year: Optional[str] = None  # from current-year teacher_sections→sections
     mobile: Optional[str] = None
+    description: Optional[str] = None
     is_active: bool
     is_approved: bool
     requires_password_reset: Optional[bool] = None
@@ -2592,8 +2655,9 @@ async def add_student_by_grade(
 ):
     """
     Admin: add a single student by grade for the current school year.
-    - HSCP grades: section optional (defaults to first section of the grade)
-    - All other grades: section is required (no defaulting)
+    - HSCP grades: any provided section is ignored; student is enrolled for the whole grade
+      (Reading / Writing / Conversation)
+    - All other grades: section is required
     """
     try:
         if profile.get("role") != "admin":
@@ -2608,7 +2672,10 @@ async def add_student_by_grade(
             return JSONResponse(status_code=400, content={"error": "Grade is required."})
 
         section_raw = (payload.section or "").strip()
-        if not is_hscp_grade(normalized_grade) and not section_raw:
+        # HSCP students attend all sections — never require or honor a CSV/UI section value
+        if is_hscp_grade(normalized_grade):
+            section_raw = ""
+        elif not section_raw:
             return JSONResponse(
                 status_code=400,
                 content={"error": "Section is required for non-HSCP grades."}
@@ -2638,21 +2705,7 @@ async def add_student_by_grade(
         grade_sections = sections_response.data
         primary_section_id = None
         if is_hscp_grade(normalized_grade):
-            if section_raw:
-                wanted = capitalize_section(section_raw)
-                match = next(
-                    (s for s in grade_sections if (s.get("section") or "").strip().lower() == wanted.strip().lower()),
-                    None
-                )
-                if not match:
-                    available = ", ".join(s.get("section") or "" for s in grade_sections)
-                    return JSONResponse(
-                        status_code=404,
-                        content={"error": f"Section '{section_raw}' not found for {normalized_grade}. Available: {available}"}
-                    )
-                primary_section_id = match.get("id")
-            else:
-                primary_section_id = grade_sections[0].get("id")
+            primary_section_id = grade_sections[0].get("id")
         else:
             wanted = capitalize_section(section_raw)
             match = next(
@@ -2759,6 +2812,13 @@ async def add_student_by_grade(
                     on_conflict="student_id,attendance_date,section_id"
                 ).execute()
 
+        if is_hscp_grade(normalized_grade):
+            return {
+                "success": (
+                    f"Student '{capitalized_name}' added to {normalized_grade} "
+                    f"(Reading, Writing, Conversation) ({school_year})."
+                )
+            }
         section_label = section_raw or (grade_sections[0].get("section") if grade_sections else "")
         return {
             "success": (
@@ -2787,8 +2847,8 @@ async def bulk_add_students_by_grade(
     """
     Admin bulk roster upload for the current school year.
     CSV rows: Student ID, Student Name, Grade, Section
-    - HSCP grades: Section may be empty
-    - All other grades: Section is required (no defaulting)
+    - HSCP grades: Section is ignored (student attends Reading/Writing/Conversation)
+    - All other grades: Section is required
     """
     try:
         if profile.get("role") != "admin":
@@ -2824,7 +2884,10 @@ async def bulk_add_students_by_grade(
                 continue
 
             section_raw = (student.section or "").strip()
-            if not is_hscp_grade(normalized_grade) and not section_raw:
+            # HSCP: ignore any section value from CSV
+            if is_hscp_grade(normalized_grade):
+                section_raw = ""
+            elif not section_raw:
                 missing_sections.append(f"row {idx} (ID {student_identifier})")
                 continue
 
@@ -2920,22 +2983,8 @@ async def bulk_add_students_by_grade(
             grade = record["grade"]
             grade_sections = grade_sections_map[grade]
             if is_hscp_grade(grade):
-                if record["section"]:
-                    match = next(
-                        (
-                            s for s in grade_sections
-                            if (s.get("section") or "").strip().lower() == record["section"].strip().lower()
-                        ),
-                        None
-                    )
-                    if not match:
-                        section_errors.append(
-                            f"ID {record['student_identifier']}: section '{record['section']}' not found for {grade}"
-                        )
-                        continue
-                    record["section_id"] = match.get("id")
-                else:
-                    record["section_id"] = grade_sections[0].get("id")
+                # Always enroll for whole HSCP grade; ignore any CSV section value
+                record["section_id"] = grade_sections[0].get("id")
                 record["backfill_section_ids"] = [s.get("id") for s in grade_sections if s.get("id")]
             else:
                 match = next(
@@ -4453,13 +4502,6 @@ async def create_staff(
                 content={"error": f"Invalid role. Must be one of: {', '.join(valid_roles)}."}
             )
         
-        # For volunteers, description is mandatory
-        if normalized_role == "volunteer" and (not payload.description or not payload.description.strip()):
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Description is required for volunteers."}
-            )
-        
         # If HSCP officer, only allow creating teachers with HSCP grades
         if current_role == "hscp_officer":
             if normalized_role != "teacher":
@@ -4483,6 +4525,14 @@ async def create_staff(
                 status_code=400,
                 content={"error": "Full name is required."}
             )
+
+        if payload.email and payload.email.strip() and not is_valid_email(payload.email):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "Invalid email format. Use an address like name@catamilacademy.org or name@gmail.com."
+                },
+            )
         
         # Only teachers require grade/section/room_number
         if normalized_role == "teacher" and (not payload.grade or not payload.section or not payload.room_number):
@@ -4493,27 +4543,68 @@ async def create_staff(
         
         # Normalize HSCP grade if teacher
         normalized_grade = payload.grade
+        normalized_section = None
         if normalized_role == "teacher" and payload.grade:
             normalized_grade = normalize_hscp_grade(payload.grade)
+            normalized_section, section_error = validate_and_normalize_teacher_section(
+                normalized_grade or "",
+                payload.section or "",
+            )
+            if section_error:
+                return JSONResponse(status_code=400, content={"error": section_error})
         
         # Generate placeholder email if no email provided
         import uuid
-        placeholder_email = None
-        if not payload.email or not payload.email.strip():
-            placeholder_email = f"noemail-{uuid.uuid4()}@system.local"
+        provided_email = payload.email.strip() if payload.email and payload.email.strip() else None
+        if provided_email:
+            placeholder_email = provided_email.lower()
         else:
-            placeholder_email = payload.email.strip().lower()
+            placeholder_email = f"noemail-{uuid.uuid4()}@system.local"
         
         # Get admin client
         admin_supabase = get_supabase_admin_client()
-        
-        # Check if email already exists (if email was provided)
-        if payload.email and payload.email.strip():
-            existing_response = admin_supabase.table("profiles").select("id").eq("email", placeholder_email).maybe_single().execute()
-            if existing_response and hasattr(existing_response, 'data') and existing_response.data:
+
+        capitalized_name = capitalize_name(payload.full_name.strip())
+
+        # Duplicate checks
+        if provided_email:
+            # Case-insensitive email match (profiles.email may be mixed case from older rows)
+            existing_response = (
+                admin_supabase.table("profiles")
+                .select("id,email,full_name")
+                .ilike("email", provided_email)
+                .limit(1)
+                .execute()
+            )
+            existing_rows = existing_response.data if existing_response and hasattr(existing_response, "data") else []
+            if existing_rows:
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "This email address is already registered."}
+                    content={"error": "This email address is already registered."},
+                )
+        else:
+            # No email: treat same full name + role (+ grade/section for teachers) as duplicate
+            dup_query = (
+                admin_supabase.table("profiles")
+                .select("id,full_name,role,grade,section")
+                .eq("full_name", capitalized_name)
+                .eq("role", normalized_role)
+            )
+            if normalized_role == "teacher" and payload.grade and payload.section:
+                norm_g = normalize_hscp_grade(payload.grade) if payload.grade else None
+                norm_s = normalized_section
+                if norm_g:
+                    dup_query = dup_query.eq("grade", norm_g)
+                if norm_s:
+                    dup_query = dup_query.eq("section", norm_s)
+            dup_response = dup_query.limit(1).execute()
+            dup_rows = dup_response.data if dup_response and hasattr(dup_response, "data") else []
+            if dup_rows:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "A staff member with this name and role already exists."
+                    },
                 )
         
         # Get current school year
@@ -4540,7 +4631,7 @@ async def create_staff(
         section_id = None
         if normalized_role == "teacher":
             grade = normalized_grade
-            section = capitalize_section(payload.section.strip()) if payload.section else ""
+            section = normalized_section or ""
             room_number = payload.room_number.strip()
             
             # For HSCP grades, ensure all sections of the same grade share the same room number
@@ -4630,7 +4721,7 @@ async def create_staff(
             "password": temporary_password,  # Temporary password, user must reset on first login
             "email_confirm": True,
             "user_metadata": {
-                "full_name": capitalize_name(payload.full_name.strip())
+                "full_name": capitalized_name
             }
         }
         
@@ -4640,6 +4731,13 @@ async def create_staff(
             if response.status_code not in [200, 201]:
                 error_text = response.text
                 log_error(f"Failed to create user in Supabase Auth: {response.status_code} - {error_text}")
+                # Friendlier message for duplicate auth emails
+                lower_err = (error_text or "").lower()
+                if "already" in lower_err or "exists" in lower_err or response.status_code == 422:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "This email address is already registered."},
+                    )
                 return JSONResponse(
                     status_code=500,
                     content={"error": f"Failed to create user: {error_text}"}
@@ -4655,14 +4753,13 @@ async def create_staff(
                 )
         
         # Create profile record
-        capitalized_name = capitalize_name(payload.full_name.strip())
         profile_data = {
             "id": user_id,
-            "email": payload.email.strip() if payload.email and payload.email.strip() else None,
+            "email": placeholder_email if provided_email else None,
             "full_name": capitalized_name,
             "mobile": payload.mobile.strip() if payload.mobile else None,
             "grade": normalized_grade if normalized_role == "teacher" else None,
-            "section": capitalize_section(payload.section.strip()) if normalized_role == "teacher" and payload.section else None,
+            "section": normalized_section if normalized_role == "teacher" else None,
             "room_number": payload.room_number.strip() if normalized_role == "teacher" and payload.room_number else None,
             "role": normalized_role,
             "is_active": True,  # Active by default when created by admin
@@ -4735,6 +4832,153 @@ async def create_staff(
             status_code=500,
             content={"error": f"Failed to create staff: {str(e)}"}
         )
+
+
+@api_router.post("/admin/users/bulk", response_model=BulkCreateStaffResponse)
+async def bulk_create_staff(
+    payload: BulkCreateStaffRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """
+    Bulk-create staff from CSV rows.
+    Grade/section/room are applied only when role is teacher; ignored for other roles.
+    HSCP officers may only create HSCP teachers.
+    """
+    try:
+        current_role = profile.get("role")
+        if current_role not in ["admin", "principal", "hscp_officer", "attendance_officer"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Only admins, principals, HSCP officers, and attendance officers can create staff",
+            )
+
+        if not payload.staff:
+            return JSONResponse(status_code=400, content={"error": "No staff rows provided."})
+
+        added = 0
+        errors: list[dict] = []
+
+        for index, row in enumerate(payload.staff, start=1):
+            name = (row.full_name or "").strip()
+            role_raw = (row.role or "").strip().lower().replace(" ", "_").replace("-", "_")
+            role_aliases = {
+                "attendanceofficer": "attendance_officer",
+                "hscpofficer": "hscp_officer",
+                "hscp_officer": "hscp_officer",
+                "attendance_officer": "attendance_officer",
+            }
+            normalized_role = role_aliases.get(role_raw.replace("_", ""), role_raw)
+            if normalized_role not in ["admin", "teacher", "principal", "attendance_officer", "hscp_officer", "volunteer"]:
+                errors.append({
+                    "row": index,
+                    "full_name": name or "Unnamed",
+                    "reason": f"Invalid role '{row.role}'.",
+                })
+                continue
+
+            # Only teachers use grade/section/room from CSV
+            grade = None
+            section = None
+            room_number = None
+            if normalized_role == "teacher":
+                grade = (row.grade or "").strip() or None
+                section = (row.section or "").strip() or None
+                room_number = (row.room_number or "").strip() or None
+
+            description = (row.description or "").strip() or None
+            if current_role == "hscp_officer":
+                # Force teacher + HSCP grade only
+                normalized_role = "teacher"
+                grade = (row.grade or "").strip() or None
+                section = (row.section or "").strip() or None
+                room_number = (row.room_number or "").strip() or None
+
+            item = CreateStaffRequest(
+                full_name=name,
+                role=normalized_role,
+                email=(row.email or "").strip() or None,
+                mobile=(row.mobile or "").strip() or None,
+                grade=grade,
+                section=section,
+                room_number=room_number,
+                description=description,
+            )
+
+            try:
+                result = await create_staff(item, profile)
+            except HTTPException as he:
+                detail = he.detail
+                if isinstance(detail, dict):
+                    detail = detail.get("error") or detail.get("detail") or str(detail)
+                errors.append({
+                    "row": index,
+                    "full_name": name or "Unnamed",
+                    "reason": str(detail),
+                })
+                continue
+            except Exception as e:
+                errors.append({
+                    "row": index,
+                    "full_name": name or "Unnamed",
+                    "reason": str(e),
+                })
+                continue
+
+            if isinstance(result, JSONResponse):
+                try:
+                    body = json.loads(result.body.decode("utf-8")) if isinstance(result.body, (bytes, bytearray)) else {}
+                except Exception:
+                    body = {}
+                err_msg = body.get("error") or body.get("detail") or f"HTTP {result.status_code}"
+                errors.append({
+                    "row": index,
+                    "full_name": name or "Unnamed",
+                    "reason": str(err_msg),
+                })
+                continue
+
+            if isinstance(result, dict) and result.get("success"):
+                added += 1
+            else:
+                errors.append({
+                    "row": index,
+                    "full_name": name or "Unnamed",
+                    "reason": "Unknown failure.",
+                })
+
+        failed = len(errors)
+        if added == 0 and failed > 0:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": f"No staff created. {failed} row(s) failed.",
+                    "addedCount": 0,
+                    "failedCount": failed,
+                    "errors": errors[:50],
+                },
+            )
+
+        msg = f"{added} staff member(s) added successfully."
+        if failed:
+            msg += f" {failed} row(s) failed."
+
+        return {
+            "success": msg,
+            "addedCount": added,
+            "failedCount": failed,
+            "errors": errors[:50] if errors else [],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in bulk_create_staff: {str(e)}")
+        log_error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to bulk-create staff: {str(e)}"},
+        )
+
 
 @api_router.post("/admin/users/{user_id}/temporary-password")
 async def get_temporary_password(
@@ -5378,6 +5622,9 @@ async def update_user_profile(
         if payload.room_number is not None:
             update_data["room_number"] = payload.room_number.strip() if payload.room_number else None
             assignment_room = update_data["room_number"]
+
+        if payload.description is not None:
+            update_data["description"] = payload.description.strip() if payload.description else None
         
         # Handle email update (requires updating auth.users)
         email_updated = False
@@ -5705,6 +5952,78 @@ async def delete_student(
         )
 
 
+class SetStudentActiveRequest(BaseModel):
+    is_active: bool
+
+
+@api_router.post("/admin/students/{student_id}/status")
+async def set_student_active_status(
+    student_id: str,
+    payload: SetStudentActiveRequest,
+    profile: dict = Depends(get_current_profile),
+):
+    """
+    Mark a student as discontinued (is_active=false) or reactivate (is_active=true).
+    Keeps attendance history. Admin or HSCP officer (HSCP students only).
+    """
+    try:
+        current_role = profile.get("role")
+        if current_role not in ["admin", "hscp_officer"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Only admins and HSCP officers can change student active status",
+            )
+
+        admin_supabase = get_supabase_admin_client()
+        student_response = (
+            admin_supabase.table("students")
+            .select("id,section_id,sections(grade)")
+            .eq("id", student_id)
+            .maybe_single()
+            .execute()
+        )
+        if not student_response or not getattr(student_response, "data", None) or not student_response.data:
+            raise HTTPException(status_code=404, detail="Student not found")
+
+        student_row = student_response.data
+        section_info = student_row.get("sections")
+        if isinstance(section_info, list) and section_info:
+            section_info = section_info[0]
+        grade = (section_info or {}).get("grade") or ""
+
+        if current_role == "hscp_officer" and not str(grade).upper().startswith("HSCP"):
+            raise HTTPException(
+                status_code=403,
+                detail="HSCP officers can only discontinue or reactivate HSCP students",
+            )
+
+        update_data = {
+            "is_active": bool(payload.is_active),
+            "discontinued_at": None if payload.is_active else datetime.now(timezone.utc).isoformat(),
+        }
+        update_response = (
+            admin_supabase.table("students").update(update_data).eq("id", student_id).execute()
+        )
+        if update_response is None:
+            raise HTTPException(status_code=500, detail="Supabase returned None for student status update")
+        if hasattr(update_response, "error") and update_response.error:
+            raise HTTPException(status_code=500, detail=str(update_response.error))
+
+        action = "reactivated" if payload.is_active else "discontinued"
+        log_info(f"Student {student_id} {action} by {current_role} {profile.get('email')}")
+        return {
+            "success": True,
+            "message": f"Student {action} successfully.",
+            "is_active": bool(payload.is_active),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_error(f"Error in set_student_active_status: {str(e)}")
+        log_error(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 class DeleteSectionAttendanceRequest(BaseModel):
     section_id: str
     attendance_date: str
@@ -5924,6 +6243,7 @@ async def get_all_users(
                     room_number=room_number,
                     school_year=user_school_year,
                     mobile=user.get("mobile"),
+                    description=user.get("description"),
                     is_active=user.get("is_active", False),
                     is_approved=user.get("is_approved", False),
                     requires_password_reset=user.get("requires_password_reset"),

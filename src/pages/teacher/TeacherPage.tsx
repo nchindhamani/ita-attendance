@@ -158,6 +158,7 @@ export default function TeacherPage() {
                   .select('id,student_identifier,full_name')
                   .in('section_id', sectionIds)
                   .eq('school_year', section.school_year || getCurrentSchoolYear())
+                  .eq('is_active', true)
                   .order('student_identifier', { ascending: true })
                 
                 studentsData = result.data
@@ -172,6 +173,7 @@ export default function TeacherPage() {
                 .from('students')
                 .select('id,student_identifier,full_name')
                 .eq('section_id', section.id)
+                .eq('is_active', true)
                 .order('student_identifier', { ascending: true })
               
               studentsData = result.data

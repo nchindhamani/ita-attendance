@@ -156,6 +156,7 @@ export function RecordStudentAttendancePage({
         .select('id,full_name,student_identifier')
         .in('section_id', sectionIdsToFetch)
         .eq('school_year', year)
+        .eq('is_active', true)
         .order('full_name', { ascending: true })
 
       if (studentsError) {

@@ -332,6 +332,7 @@ export default function ViewAttendancePage({
               .select('id,full_name,student_identifier')
               .in('section_id', sectionIds)
               .eq('school_year', currentSchoolYear)
+              .eq('is_active', true)
               .order('full_name', { ascending: true })
 
             const uniqueStudents = new Map<string, Student>()
@@ -372,6 +373,7 @@ export default function ViewAttendancePage({
                 .select('id,full_name,student_identifier')
                 .eq('section_id', sec.id)
                 .eq('school_year', currentSchoolYear)
+                .eq('is_active', true)
                 .order('full_name', { ascending: true })
 
               const sectionStudents = stuData ?? []

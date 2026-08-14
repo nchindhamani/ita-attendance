@@ -14,7 +14,9 @@ import {
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Role } from '@/lib/types'
+import { isValidEmail, validateTeacherSection } from '@/lib/utils'
 import { TemporaryPasswordDialog } from '@/components/admin/TemporaryPasswordDialog'
+import { StaffBulkUpload } from '@/features/admin/StaffBulkUpload'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -61,15 +63,19 @@ export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: C
           toast.error('Grade, section, and room number are required for teachers')
           return
         }
-      }
-
-      // For volunteers, description is required
-      if (formData.role === 'volunteer') {
-        if (!formData.description.trim()) {
-          toast.error('Description is required for volunteers')
+        const sectionCheck = validateTeacherSection(formData.grade, formData.section)
+        if (!sectionCheck.ok) {
+          toast.error(sectionCheck.error)
           return
         }
       }
+
+      if (formData.email.trim() && !isValidEmail(formData.email)) {
+        toast.error('Invalid email format. Use an address like name@catamilacademy.org or name@gmail.com.')
+        return
+      }
+
+      // Description is optional for all roles including volunteers
 
       // Get session for authentication
       const { data: { session } } = await supabase.auth.getSession()
@@ -148,9 +154,13 @@ export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: C
   const isVolunteer = formData.role === 'volunteer'
 
   return (
+    <div className="space-y-6">
     <Card>
       <CardHeader>
-        <CardTitle>Create New Staff</CardTitle>
+        <CardTitle>Add a Single Staff</CardTitle>
+        <p className="text-sm text-muted-foreground font-normal pt-1">
+          Create one staff member at a time.
+        </p>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -160,7 +170,7 @@ export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: C
               id="full_name"
               value={formData.full_name}
               onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-              placeholder="Enter full name"
+              placeholder="First_Name Last_Name"
               required
             />
           </div>
@@ -195,7 +205,7 @@ export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: C
               placeholder="Enter email (optional)"
             />
             <p className="text-xs text-muted-foreground">
-              If no email is provided, a placeholder email will be created. The staff can log in once an email is added.
+              Email is optional now, but required for the staff member to log in.
             </p>
           </div>
 
@@ -231,9 +241,12 @@ export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: C
                   id="section"
                   value={formData.section}
                   onChange={(e) => setFormData({ ...formData, section: e.target.value })}
-                  placeholder="e.g., A, B, 1"
+                  placeholder="e.g., A, B (or Reading / Writing / Conversation for HSCP)"
                   required={isTeacher}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Regular grades: one letter (A–Z). HSCP grades: Reading, Writing, or Conversation.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -249,33 +262,24 @@ export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: C
             </>
           )}
 
-          {isVolunteer && (
-            <div className="space-y-2">
-              <Label htmlFor="description">Description *</Label>
-              <Input
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="e.g., Parent Helper, Community Volunteer"
-                required={isVolunteer}
-              />
+          <div className="space-y-2">
+            <Label htmlFor="description">Description (Optional)</Label>
+            <Input
+              id="description"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder={
+                isVolunteer
+                  ? 'e.g., Parent Helper, Community Volunteer'
+                  : 'Optional description or title'
+              }
+            />
+            {isVolunteer && (
               <p className="text-xs text-muted-foreground">
-                This will be displayed as "Volunteer - Description" in staff directories.
+                If provided, this is shown as &quot;Volunteer - Description&quot; in staff lists.
               </p>
-            </div>
-          )}
-
-          {!isTeacher && !isVolunteer && (
-            <div className="space-y-2">
-              <Label htmlFor="description">Description (Optional)</Label>
-              <Input
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Optional description or title"
-              />
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="flex gap-4">
             <Button type="submit" disabled={isSubmitting}>
@@ -326,6 +330,9 @@ export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: C
         />
       )}
     </Card>
+
+    <StaffBulkUpload onSuccess={onStaffCreated} />
+    </div>
   )
 }
 

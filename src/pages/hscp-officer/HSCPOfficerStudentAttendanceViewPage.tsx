@@ -159,6 +159,7 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
           .select('id,full_name,student_identifier')
           .in('section_id', sectionIds)
           .eq('school_year', schoolYear)
+          .eq('is_active', true)
           .order('full_name', { ascending: true })
 
         // Deduplicate students
@@ -275,6 +276,7 @@ export default function HSCPOfficerStudentAttendanceViewPage() {
         .select('id,full_name,student_identifier')
         .in('section_id', sectionIds)
         .eq('school_year', schoolYear)
+        .eq('is_active', true)
         .order('full_name', { ascending: true })
 
       if (error) {
