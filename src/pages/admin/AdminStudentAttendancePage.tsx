@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { StudentAttendanceSearch } from '@/features/admin/StudentAttendanceSearch'
 import { HSCPBulkStudentUpload } from '@/features/hscp/HSCPBulkStudentUpload'
 import { toast } from 'sonner'
-import { Trash2, Upload, UserPlus, UserX, UserCheck } from 'lucide-react'
+import { Trash2, Upload, UserPlus, UserX, UserCheck, Pencil } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -70,6 +70,12 @@ export default function AdminStudentAttendancePage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [statusPending, setStatusPending] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editStudentId, setEditStudentId] = useState('')
+  const [editSectionId, setEditSectionId] = useState('')
+  const [editSectionOptions, setEditSectionOptions] = useState<{ id: string; section: string }[]>([])
 
   const [availableGrades, setAvailableGrades] = useState<string[]>([])
   const [availableSectionsForGrade, setAvailableSectionsForGrade] = useState<string[]>([])
@@ -400,6 +406,97 @@ export default function AdminStudentAttendancePage() {
     }
   }
 
+  const openEditStudent = async () => {
+    if (!student || !sectionInfo) return
+    setEditName(student.full_name || '')
+    setEditStudentId(String(student.student_identifier ?? ''))
+    setEditSectionId(student.section_id || '')
+    setEditSectionOptions([])
+
+    if (!isHscpGrade(sectionInfo.grade)) {
+      const { data: sectionsData } = await supabase
+        .from('sections')
+        .select('id,section')
+        .eq('grade', sectionInfo.grade)
+        .eq('school_year', student.school_year)
+        .order('section', { ascending: true })
+      setEditSectionOptions(
+        (sectionsData || [])
+          .filter((s) => s.id && s.section)
+          .map((s) => ({ id: s.id as string, section: s.section as string }))
+      )
+    }
+    setEditOpen(true)
+  }
+
+  const handleSaveStudentEdit = async () => {
+    if (!student || !sectionInfo || editSaving) return
+    const name = editName.trim()
+    const idRaw = editStudentId.trim()
+    if (!name) {
+      toast.error('Student name is required.')
+      return
+    }
+    if (!/^\d+$/.test(idRaw)) {
+      toast.error('Student ID must be a number.')
+      return
+    }
+    const isHscp = isHscpGrade(sectionInfo.grade)
+    if (!isHscp && !editSectionId) {
+      toast.error('Section is required for regular-grade students.')
+      return
+    }
+
+    try {
+      setEditSaving(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated. Please sign in again.')
+        setEditSaving(false)
+        return
+      }
+      const body: Record<string, string> = {
+        studentId: student.id,
+        studentIdentifier: idRaw,
+        fullName: name,
+      }
+      if (!isHscp) {
+        body.sectionId = editSectionId
+      }
+      const response = await fetch('/api/students', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || data.detail || 'Failed to update student.')
+        setEditSaving(false)
+        return
+      }
+
+      const selectedSection = editSectionOptions.find((s) => s.id === editSectionId)
+      setStudent({
+        ...student,
+        full_name: name,
+        student_identifier: Number(idRaw),
+        section_id: isHscp ? student.section_id : editSectionId,
+      })
+      if (!isHscp && selectedSection) {
+        setSectionInfo({ grade: sectionInfo.grade, section: selectedSection.section })
+      }
+      setEditOpen(false)
+      toast.success(data.success || 'Student updated.')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'An unexpected error occurred.')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   const handleDeleteStudent = async () => {
     if (!student || deleting) return
     try {
@@ -644,6 +741,15 @@ export default function AdminStudentAttendancePage() {
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => void openEditStudent()}
+                >
+                  <Pencil className="w-4 h-4" />
+                  Edit Student
+                </Button>
                 {student.is_active !== false && (
                   <Button
                     variant="outline"
@@ -779,6 +885,72 @@ export default function AdminStudentAttendancePage() {
           </div>
         </div>
       )}
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Edit Student</DialogTitle>
+            <DialogDescription>
+              Update name or Student ID
+              {sectionInfo && !isHscpGrade(sectionInfo.grade)
+                ? '. Section can be changed within the same grade; past attendance stays with the previous section.'
+                : '. Grade and section are not changed for HSCP students.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="edit-student-name">Full Name *</Label>
+              <Input
+                id="edit-student-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Student full name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-student-id">Student ID *</Label>
+              <Input
+                id="edit-student-id"
+                value={editStudentId}
+                onChange={(e) => setEditStudentId(e.target.value)}
+                placeholder="Numeric student ID"
+              />
+            </div>
+            {sectionInfo && (
+              <div className="space-y-2">
+                <Label>Grade</Label>
+                <Input value={sectionInfo.grade} disabled />
+              </div>
+            )}
+            {sectionInfo && !isHscpGrade(sectionInfo.grade) && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-student-section">Section *</Label>
+                <select
+                  id="edit-student-section"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={editSectionId}
+                  onChange={(e) => setEditSectionId(e.target.value)}
+                >
+                  <option value="">Select a section</option>
+                  {editSectionOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.section}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSaveStudentEdit()} disabled={editSaving}>
+              {editSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>

@@ -1180,7 +1180,8 @@ class UpdateStudentRequest(BaseModel):
     studentId: str
     studentIdentifier: str
     fullName: str
-    sectionId: str
+    # Optional: only used for regular-grade students. Ignored for HSCP.
+    sectionId: Optional[str] = None
 
 class UpdateStudentResponse(BaseModel):
     success: Optional[str] = None
@@ -3114,8 +3115,12 @@ async def update_student(
     authorization: Optional[str] = Header(None)
 ):
     """
-    Update an existing student.
-    Only admins and HSCP officers may edit students.
+    Update an existing student (admin / HSCP officer).
+    - Always: full name, student identifier
+    - Regular grades only: optional sectionId (must exist for same grade + school year)
+    - HSCP: sectionId is ignored (students attend all HSCP sections)
+    - Grade is not editable
+    Past attendance rows are left unchanged when section moves.
     """
     try:
         current_role = profile.get("role")
@@ -3129,14 +3134,42 @@ async def update_student(
         
         # Validate student identifier is a number
         try:
-            student_identifier = int(payload.studentIdentifier)
+            student_identifier = int(str(payload.studentIdentifier).strip())
         except ValueError:
             return JSONResponse(
                 status_code=400,
                 content={"error": "Student ID must be a number."}
             )
+
+        if not (payload.fullName or "").strip():
+            return JSONResponse(status_code=400, content={"error": "Student name is required."})
         
         admin_supabase = get_supabase_admin_client()
+
+        # Load current student + classroom
+        current_response = (
+            admin_supabase.table("students")
+            .select("id,full_name,student_identifier,section_id,school_year,sections(id,grade,section,school_year)")
+            .eq("id", payload.studentId)
+            .maybe_single()
+            .execute()
+        )
+        if not current_response or not getattr(current_response, "data", None):
+            return JSONResponse(status_code=404, content={"error": "Student not found."})
+
+        current = current_response.data
+        section_info = current.get("sections")
+        if isinstance(section_info, list):
+            section_info = section_info[0] if section_info else None
+        current_grade = (section_info or {}).get("grade") or ""
+        current_school_year = current.get("school_year") or (section_info or {}).get("school_year") or ""
+        is_hscp = is_hscp_grade(current_grade)
+
+        if current_role == "hscp_officer" and not is_hscp:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "HSCP officers can only edit HSCP students."},
+            )
         
         # Check if the new student_identifier already exists for a different student globally
         existing_response = admin_supabase.table("students").select(
@@ -3153,14 +3186,14 @@ async def update_student(
         elif hasattr(existing_response, 'data') and existing_response.data is not None:
             # Student ID already exists for another student
             existing = existing_response.data
-            section_info = existing.get("sections")
-            if isinstance(section_info, list) and len(section_info) > 0:
-                section_info = section_info[0]
-            elif not section_info:
-                section_info = None
+            existing_section = existing.get("sections")
+            if isinstance(existing_section, list) and len(existing_section) > 0:
+                existing_section = existing_section[0]
+            elif not existing_section:
+                existing_section = None
             
-            if section_info:
-                section_display = f"Grade {section_info.get('grade')} {section_info.get('section')}"
+            if existing_section:
+                section_display = f"Grade {existing_section.get('grade')} {existing_section.get('section')}"
             else:
                 section_display = "another class"
             
@@ -3171,12 +3204,63 @@ async def update_student(
                 }
             )
         
-        # Update student
+        # Update student core fields
         capitalized_name = capitalize_name(payload.fullName.strip())
         update_data = {
             "student_identifier": student_identifier,
             "full_name": capitalized_name,
         }
+
+        # Regular grades: allow section change within same grade + school year
+        new_section_id = (payload.sectionId or "").strip() or None
+        if not is_hscp and new_section_id:
+            target_response = (
+                admin_supabase.table("sections")
+                .select("id,grade,section,school_year")
+                .eq("id", new_section_id)
+                .maybe_single()
+                .execute()
+            )
+            if not target_response or not getattr(target_response, "data", None):
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Selected section does not exist."},
+                )
+            target = target_response.data
+            if (target.get("grade") or "") != current_grade:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": (
+                            f"Section must stay in grade {current_grade}. "
+                            "Grade cannot be changed from Edit Student."
+                        )
+                    },
+                )
+            if current_school_year and (target.get("school_year") or "") != current_school_year:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": (
+                            f"Section must be for school year {current_school_year}."
+                        )
+                    },
+                )
+            # Optional letter validation for regular sections
+            section_name = (target.get("section") or "").strip()
+            if not re.fullmatch(r"[A-Za-z]", section_name):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "For regular grades, section must be a single letter (A–Z) classroom that already exists."
+                    },
+                )
+            update_data["section_id"] = new_section_id
+        elif not is_hscp and payload.sectionId is not None and str(payload.sectionId).strip() == "":
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Section is required for regular-grade students."},
+            )
         
         log_info(f"Updating student: {update_data}")
         
@@ -3191,7 +3275,7 @@ async def update_student(
             log_error(f"Supabase error updating student: {error_message}")
             raise HTTPException(status_code=500, detail=f"Unable to update student: {error_message}")
         
-        # Also update student_identifier in attendance records
+        # Also update student_identifier in attendance records (do not move historical section_id)
         attendance_update_response = admin_supabase.table("student_attendance").update(
             {"student_identifier": student_identifier}
         ).eq("student_id", payload.studentId).execute()

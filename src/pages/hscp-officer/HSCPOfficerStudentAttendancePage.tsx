@@ -14,7 +14,15 @@ import { Label } from '@/components/ui/label'
 import { StudentAttendanceSearch } from '@/features/admin/StudentAttendanceSearch'
 import { HSCPBulkStudentUpload } from '@/features/hscp/HSCPBulkStudentUpload'
 import { toast } from 'sonner'
-import { Upload, UserPlus, UserX, UserCheck } from 'lucide-react'
+import { Upload, UserPlus, UserX, UserCheck, Pencil } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -57,6 +65,10 @@ export default function HSCPOfficerStudentAttendancePage() {
   const [hscpSections, setHscpSections] = useState<HSCPSection[]>([])
   const [selectedHscpTab, setSelectedHscpTab] = useState<string>('Reading')
   const [statusPending, setStatusPending] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editStudentId, setEditStudentId] = useState('')
 
   // Add Student form state (previously used by dialog; now used by inline section)
   // PREVIOUS: const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -306,6 +318,65 @@ export default function HSCPOfficerStudentAttendancePage() {
     }
   }
 
+  const openEditStudent = () => {
+    if (!student) return
+    setEditName(student.full_name || '')
+    setEditStudentId(String(student.student_identifier ?? ''))
+    setEditOpen(true)
+  }
+
+  const handleSaveStudentEdit = async () => {
+    if (!student || editSaving) return
+    const name = editName.trim()
+    const idRaw = editStudentId.trim()
+    if (!name) {
+      toast.error('Student name is required.')
+      return
+    }
+    if (!/^\d+$/.test(idRaw)) {
+      toast.error('Student ID must be a number.')
+      return
+    }
+    try {
+      setEditSaving(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated. Please sign in again.')
+        setEditSaving(false)
+        return
+      }
+      const response = await fetch('/api/students', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          studentId: student.id,
+          studentIdentifier: idRaw,
+          fullName: name,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || data.detail || 'Failed to update student.')
+        setEditSaving(false)
+        return
+      }
+      setStudent({
+        ...student,
+        full_name: name,
+        student_identifier: Number(idRaw),
+      })
+      setEditOpen(false)
+      toast.success(data.success || 'Student updated.')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'An unexpected error occurred.')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   const handleAddStudent = async () => {
     if (!newStudentGrade) {
       toast.error('Please select an HSCP grade.')
@@ -541,6 +612,15 @@ export default function HSCPOfficerStudentAttendancePage() {
               <div className="flex items-start justify-between gap-4">
                 <CardTitle>Student Information</CardTitle>
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={openEditStudent}
+                  >
+                    <Pencil className="w-4 h-4" />
+                    Edit Student
+                  </Button>
                   {student.is_active !== false && (
                     <Button
                       variant="outline"
@@ -747,6 +827,51 @@ export default function HSCPOfficerStudentAttendancePage() {
         </DialogContent>
       </Dialog>
       ========== END PREVIOUS ADD-STUDENT DIALOG ========== */}
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Edit Student</DialogTitle>
+            <DialogDescription>
+              Update name or Student ID. Grade/section are not changed for HSCP students.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="hscp-edit-student-name">Full Name *</Label>
+              <Input
+                id="hscp-edit-student-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Student full name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hscp-edit-student-id">Student ID *</Label>
+              <Input
+                id="hscp-edit-student-id"
+                value={editStudentId}
+                onChange={(e) => setEditStudentId(e.target.value)}
+                placeholder="Numeric student ID"
+              />
+            </div>
+            {sectionInfo && (
+              <div className="space-y-2">
+                <Label>Grade</Label>
+                <Input value={sectionInfo.grade} disabled />
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSaveStudentEdit()} disabled={editSaving}>
+              {editSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
