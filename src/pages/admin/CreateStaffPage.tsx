@@ -64,7 +64,7 @@ export function CreateStaffPage({ onStaffCreated, basePath = '/admin/users' }: C
           return
         }
         const sectionCheck = validateTeacherSection(formData.grade, formData.section)
-        if (!sectionCheck.ok) {
+        if (sectionCheck.ok === false) {
           toast.error(sectionCheck.error)
           return
         }

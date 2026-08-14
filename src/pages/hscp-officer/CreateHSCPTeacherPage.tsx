@@ -60,7 +60,7 @@ export function CreateHSCPTeacherPage({ onTeacherCreated }: CreateHSCPTeacherPag
       }
 
       const sectionCheck = validateTeacherSection(formData.grade, formData.section)
-      if (!sectionCheck.ok) {
+      if (sectionCheck.ok === false) {
         toast.error(sectionCheck.error)
         return
       }
