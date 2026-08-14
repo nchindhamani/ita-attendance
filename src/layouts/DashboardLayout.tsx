@@ -71,6 +71,7 @@ export default function DashboardLayout() {
           { href: "/teacher/student-attendance", label: "Student Lookup" },
           { href: "/teacher", label: "My Students" },
           { href: "/profile", label: "My Profile" },
+          { href: "/teacher/help", label: "Help" },
         ]
     }
   }

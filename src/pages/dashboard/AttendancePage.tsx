@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
-import { formatPacificDate, isAfterDailyCutoff } from '@/lib/time'
+import { formatPacificDate } from '@/lib/time'
 import { getCurrentSchoolYear } from '@/lib/school-year'
 import {
   calendarTypeForGrade,

@@ -22,6 +22,7 @@ import ProfilePage from './pages/dashboard/ProfilePage'
 // Teacher pages
 import TeacherPage from './pages/teacher/TeacherPage'
 import TeacherStudentAttendancePage from './pages/teacher/TeacherStudentAttendancePage'
+import TeacherHelpPage from './pages/teacher/TeacherHelpPage'
 
 // Admin pages
 // PREVIOUS: Admin Overview home page
@@ -104,6 +105,7 @@ function App() {
           {/* Teacher routes */}
           <Route path="/teacher" element={<TeacherPage />} />
           <Route path="/teacher/student-attendance" element={<TeacherStudentAttendancePage />} />
+          <Route path="/teacher/help" element={<TeacherHelpPage />} />
           
           {/* Admin routes */}
           {/* Admin home is Staff Management; /admin redirects there */}

@@ -19,6 +19,7 @@ import {
   UserPlus,
   LogOut,
   School,
+  CircleHelp,
 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -51,6 +52,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   "Archive": Archive,
   "Profile": User,
   "My Profile": User,
+  "Help": CircleHelp,
   // HSCP Officer
   "View HSCP Attendance": Eye,
   "Record Teacher Attendance": ClipboardCheck,
@@ -86,6 +88,7 @@ const labelMap: Record<string, string> = {
   "Archive": "Archive",
   "Profile": "Profile",
   "My Profile": "Profile",
+  "Help": "Help",
   // HSCP Officer
   "View HSCP Attendance": "View Att.",
   "Record Teacher Attendance": "Rec Tchr Att.",

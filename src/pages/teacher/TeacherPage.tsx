@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useRequireActiveProfile } from '@/lib/auth-client'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { getCurrentSchoolYear } from '@/lib/school-year'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { StudentList } from '@/features/teacher/StudentList'
 
 const supabase = createSupabaseBrowserClient()
@@ -242,7 +240,7 @@ export default function TeacherPage() {
           My Students
         </h2>
         <p className="text-base text-muted-foreground">
-          View your class roster and take attendance for each assigned section.
+          View your class roster for each assigned section.
         </p>
       </div>
 
@@ -268,18 +266,6 @@ export default function TeacherPage() {
                   <CardContent className="space-y-3 text-sm text-muted-foreground">
                     <p>School year: {section.school_year ?? 'N/A'}</p>
                     {section.room_number ? <p>Room: {section.room_number}</p> : null}
-                    <div className="flex flex-wrap gap-2">
-                      <Button asChild size="sm">
-                        <Link to={`/attendance?section=${section.id}`}>
-                          Mark Attendance
-                        </Link>
-                      </Button>
-                      <Button asChild size="sm" variant="outline">
-                        <Link to={`/history?section=${section.id}`}>
-                          Date Lookup
-                        </Link>
-                      </Button>
-                    </div>
                   </CardContent>
                 </Card>
                 <Card>
